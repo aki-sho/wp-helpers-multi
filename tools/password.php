@@ -116,6 +116,7 @@ function wphm_render_password_tool_page() {
     echo '<div style="margin-top:10px;">';
     echo '<label style="margin-right:12px;"><input type="radio" name="symbols_mode" value="none" ' . checked($defaults['symbols_mode'], 'none', false) . '> 記号なし</label>';
     echo '<label style="margin-right:12px;"><input type="radio" name="symbols_mode" value="some" ' . checked($defaults['symbols_mode'], 'some', false) . '> 記号あり</label>';
+    echo '<button type="button" class="button" id="wphm-symbols-all" style="margin-left:8px;">全選択</button>';
     echo '</div>';
 
     echo '<div id="wphm-symbols-box" style="margin-top:10px;">';
