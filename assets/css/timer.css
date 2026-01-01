@@ -1,0 +1,175 @@
+/* タイマーツール専用CSS
+ * 目的:
+ * - 管理画面の中で見やすく、操作しやすいレイアウト
+ * - JS側ロジックとは分離して、見た目はここで調整できるようにする
+ */
+
+.wphm-timer .wphm-card {
+  background: #fff;
+  border: 1px solid #dcdcde;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.wphm-timer .wphm-note {
+  background: #f6f7f7;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.wphm-timer .wphm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.wphm-timer .wphm-tabs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.wphm-timer .wphm-tab {
+  border: 1px solid #dcdcde;
+  background: #f6f7f7;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.wphm-timer .wphm-tab.is-active {
+  background: #fff;
+  border-color: #2271b1;
+}
+
+.wphm-timer .wphm-settings {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.wphm-timer .wphm-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wphm-timer .wphm-volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wphm-timer .wphm-panel {
+  display: none;
+  margin-top: 10px;
+}
+.wphm-timer .wphm-panel.is-active {
+  display: block;
+}
+
+.wphm-timer .wphm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 960px) {
+  .wphm-timer .wphm-grid { grid-template-columns: 1fr; }
+}
+
+.wphm-timer .wphm-label {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.wphm-timer .wphm-time-inputs,
+.wphm-timer .wphm-alarm-inputs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.wphm-timer .wphm-time-inputs input[type="number"] {
+  width: 90px;
+}
+
+.wphm-timer .wphm-presets {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wphm-timer .wphm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.wphm-timer .wphm-mini-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.wphm-timer .wphm-display {
+  border: 1px solid #dcdcde;
+  border-radius: 12px;
+  padding: 16px;
+  background: #fcfcfd;
+}
+
+.wphm-timer .wphm-display-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.wphm-timer .wphm-display-time {
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1.1;
+  margin-bottom: 8px;
+}
+
+.wphm-timer .wphm-sub {
+  color: #646970;
+  margin-bottom: 10px;
+}
+
+.wphm-timer .wphm-progress {
+  width: 100%;
+  height: 10px;
+  background: #e9eaec;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.wphm-timer .wphm-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: #2271b1;
+  transition: width 0.2s linear;
+}
+
+.wphm-timer .wphm-laps {
+  margin-top: 10px;
+}
+
+.wphm-timer .wphm-laps ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.wphm-timer .wphm-laps li {
+  padding: 2px 0;
+}
