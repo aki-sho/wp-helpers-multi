@@ -54,3 +54,94 @@ function wphm_render_password() {
   wphm_render_password_tool_page();
 }
 function wphm_render_timer()    { wphm_wrap('タイマー', '（ここにタイマーツールを実装します）'); }
+
+
+
+add_action('admin_post_wphm_set_fontsize', 'wphm_handle_set_fontsize');
+function wphm_handle_set_fontsize() {
+    if (!current_user_can('manage_options')) wp_die('権限がありません');
+
+    if (!isset($_POST['wphm_fontsize_nonce']) || !wp_verify_nonce($_POST['wphm_fontsize_nonce'], 'wphm_fontsize')) {
+        wp_die('Nonceが不正です。');
+    }
+
+    $val = isset($_POST['wphm_fontsize']) ? (int)$_POST['wphm_fontsize'] : 3; // 標準=3
+    $allowed = [1,2,3,4,5];
+    if (!in_array($val, $allowed, true)) $val = 3;
+
+    update_user_meta(get_current_user_id(), 'wphm_fontsize', $val);
+
+    $redirect = wp_get_referer();
+    if (!$redirect && !empty($_POST['redirect_to'])) $redirect = esc_url_raw($_POST['redirect_to']);
+    if (!$redirect) $redirect = admin_url('admin.php?page=wp-helpers-multi');
+
+    wp_safe_redirect($redirect);
+    exit;
+}
+
+function wphm_get_fontsize_value(): int {
+    $v = (int) get_user_meta(get_current_user_id(), 'wphm_fontsize', true);
+    return ($v >= 1 && $v <= 5) ? $v : 3;
+}
+
+// WP Helpers Multi のページだけ body class を付ける
+add_filter('admin_body_class', function($classes){
+    $page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : '';
+    if ($page && (strpos($page, 'wphm') === 0 || $page === 'wp-helpers-multi')) {
+        $classes .= ' wphm-fontsize-' . wphm_get_fontsize_value();
+    }
+    return $classes;
+});
+
+// 文字サイズCSS（ページ共通）
+add_action('admin_head', function(){
+    $css = <<<CSS
+/* WP Helpers Multi 全ページで効く */
+.wphm-app { font-size: 14px; } /* 標準のベース */
+
+body.wphm-fontsize-1 .wphm-app { font-size: 12px; } /* 小 */
+body.wphm-fontsize-2 .wphm-app { font-size: 13px; } /* やや小 */
+body.wphm-fontsize-3 .wphm-app { font-size: 14px; } /* 標準 */
+body.wphm-fontsize-4 .wphm-app { font-size: 16px; } /* やや大 */
+body.wphm-fontsize-5 .wphm-app { font-size: 18px; } /* 大 */
+
+.wphm-header {
+  display:flex; align-items:center; justify-content:space-between;
+  gap:12px; margin: 8px 0 12px;
+}
+.wphm-fontsize-control select { min-width: 140px; }
+CSS;
+    echo '<style>' . $css . '</style>';
+});
+
+// 右端のUI（どのページでも呼べる共通ヘッダー）
+function wphm_render_header($title) {
+    $v = wphm_get_fontsize_value();
+    $options = [
+        1 => '小',
+        2 => 'やや小',
+        3 => '標準',
+        4 => 'やや大',
+        5 => '大',
+    ];
+
+    echo '<div class="wphm-header">';
+    echo '<h1 style="margin:0;">' . esc_html($title) . '</h1>';
+
+    echo '<form class="wphm-fontsize-control" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+    echo '<input type="hidden" name="action" value="wphm_set_fontsize">';
+    echo '<input type="hidden" name="redirect_to" value="' . esc_attr($_SERVER['REQUEST_URI'] ?? '') . '">';
+    wp_nonce_field('wphm_fontsize', 'wphm_fontsize_nonce');
+
+    echo '<label style="display:flex; align-items:center; gap:8px;">';
+    echo '<span>文字サイズ</span>';
+    echo '<select name="wphm_fontsize" onchange="this.form.submit()">';
+    foreach ($options as $k => $label) {
+        echo '<option value="' . (int)$k . '" ' . selected($v, $k, false) . '>' . esc_html($label) . '</option>';
+    }
+    echo '</select>';
+    echo '</label>';
+
+    echo '</form>';
+    echo '</div>';
+}

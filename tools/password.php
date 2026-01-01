@@ -102,12 +102,25 @@ function wphm_render_password_tool_page() {
     // 記号候補（画像の雰囲気に寄せて、でもシンプル）
     $symbol_candidates = ['-', '_', '/', '*', '+', '.', ',', '!', '#', '$', '%', '&', '(', ')', '[', ']', '|', '@', '^', '~', '='];
 
-    echo '<div class="wrap wphm-wrap">';
+    // ここから置き換え（wrap二重をやめて、wphm-appを外枠に統合）
+    echo '<div class="wrap wphm-app">';
+
     echo '<style>
-    .wphm-wrap{font-size:14px;}
-    .wphm-wrap input, .wphm-wrap select, .wphm-wrap button, .wphm-wrap textarea, .wphm-wrap label{font-size:14px;}
+    /* ベース文字サイズ（あとで5段階にするならここは変数化する） */
+    .wphm-app { font-size:14px; }
+
+    /* フォーム部品はfont-sizeを継承しないことがあるので全部inheritさせる */
+    .wphm-app,
+    .wphm-app input,
+    .wphm-app select,
+    .wphm-app button,
+    .wphm-app textarea,
+    .wphm-app label {
+      font-size: inherit;
+    }
     </style>';
-    echo '<h1>パスワード生成</h1>';
+
+    wphm_render_header('パスワード生成');
     echo '<p>プリセット（セット）かカスタムを選んで生成します。</p>';
 
     if ($error) {
@@ -303,7 +316,7 @@ JS;
 
 echo '<script>' . $js . '</script>';
 
-echo '</div>';
+echo '</div></div>';
 }
 
 
