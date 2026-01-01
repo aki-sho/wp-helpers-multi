@@ -7,6 +7,8 @@ function wphm_render_password_tool_page() {
     $defaults = [
         'preset' => 'set2',   // 通常
         'length' => 12,
+        'length_raw' => '12',     // ←追加（表示用）
+        'length_custom' => 12,    // ←追加（カスタム入力保持
         'count'  => 4,
         'upper'  => 1,
         'lower'  => 1,
@@ -23,8 +25,12 @@ function wphm_render_password_tool_page() {
             $error = 'Nonceが不正です。ページを更新してやり直してください。';
         } else {
             $preset = isset($_POST['preset']) ? sanitize_text_field($_POST['preset']) : $defaults['preset'];
-            $length = isset($_POST['length']) ? (int)$_POST['length'] : $defaults['length'];
-            $count  = isset($_POST['count'])  ? (int)$_POST['count']  : $defaults['count'];
+
+            // ▼ 文字数（固定 or custom）ここが差し替えポイント
+            $length_raw    = isset($_POST['length']) ? sanitize_text_field($_POST['length']) : (string)$defaults['length'];
+            $length_custom = isset($_POST['length_custom']) ? (int)$_POST['length_custom'] : (int)($defaults['length_custom'] ?? $defaults['length']);
+
+            $count  = isset($_POST['count']) ? (int)$_POST['count'] : $defaults['count'];
 
             $upper = !empty($_POST['upper']) ? 1 : 0;
             $lower = !empty($_POST['lower']) ? 1 : 0;
@@ -39,13 +45,24 @@ function wphm_render_password_tool_page() {
             // 長さ/個数の許可値
             $allowed_lengths = [4, 8, 10, 12, 16, 20];
             $allowed_counts  = [4, 8];
-            if (!in_array($length, $allowed_lengths, true)) $length = $defaults['length'];
-            if (!in_array($count,  $allowed_counts,  true)) $count  = $defaults['count'];
+
+            // ▼ length確定
+            if ($length_raw === 'custom') {
+                // カスタムは 4〜64（必要なら上限変更OK）
+                $length = max(4, min(64, $length_custom));
+            } else {
+                $length = (int)$length_raw;
+                if (!in_array($length, $allowed_lengths, true)) {
+                    $length = (int)$defaults['length'];
+                }
+            }
+
+            if (!in_array($count, $allowed_counts, true)) $count = (int)$defaults['count'];
 
             $sets = [
-                'upper' => $upper,
-                'lower' => $lower,
-                'digit' => $digit,
+                'upper'   => $upper,
+                'lower'   => $lower,
+                'digit'   => $digit,
                 'symbols' => ($symbols_mode === 'some' && !empty($symbols)) ? 1 : 0,
             ];
 
@@ -68,7 +85,10 @@ function wphm_render_password_tool_page() {
 
             // 画面の再表示用（入力保持）
             $defaults['preset'] = $preset;
-            $defaults['length'] = $length;
+            $defaults['length'] = $length; // 生成に使った確定値
+            $defaults['length_raw'] = ($length_raw === 'custom') ? 'custom' : (string)$length;
+            $defaults['length_custom'] = $length_custom;
+
             $defaults['count']  = $count;
             $defaults['upper']  = $upper;
             $defaults['lower']  = $lower;
@@ -78,10 +98,15 @@ function wphm_render_password_tool_page() {
         }
     }
 
+
     // 記号候補（画像の雰囲気に寄せて、でもシンプル）
     $symbol_candidates = ['-', '_', '/', '*', '+', '.', ',', '!', '#', '$', '%', '&', '(', ')', '[', ']', '|', '@', '^', '~', '='];
 
-    echo '<div class="wrap">';
+    echo '<div class="wrap wphm-wrap">';
+    echo '<style>
+    .wphm-wrap{font-size:14px;}
+    .wphm-wrap input, .wphm-wrap select, .wphm-wrap button, .wphm-wrap textarea, .wphm-wrap label{font-size:14px;}
+    </style>';
     echo '<h1>パスワード生成</h1>';
     echo '<p>プリセット（セット）かカスタムを選んで生成します。</p>';
 
@@ -133,9 +158,20 @@ function wphm_render_password_tool_page() {
     // ④ 文字数
     echo '<h2 style="margin-top:16px;">文字数</h2>';
     echo '<fieldset style="border:1px solid #ccd0d4; padding:12px; border-radius:6px; background:#fff;">';
+
+    $length_raw_view = $defaults['length_raw'] ?? (string)$defaults['length'];
+
     foreach ([4, 8, 10, 12, 16, 20] as $len) {
-        echo '<label style="margin-right:14px;"><input type="radio" name="length" value="' . (int)$len . '" ' . checked($defaults['length'], $len, false) . '> ' . (int)$len . '</label>';
+      echo '<label style="margin-right:14px;"><input type="radio" name="length" value="' . (int)$len . '" ' .
+          checked($length_raw_view, (string)$len, false) . '> ' . (int)$len . '</label>';
     }
+
+    // カスタム
+    echo '<label style="margin-left:10px;">';
+    echo '<input type="radio" name="length" value="custom" ' . checked($length_raw_view, 'custom', false) . '> カスタム ';
+    echo '<input type="number" name="length_custom" value="' . (int)$defaults['length_custom'] . '" min="4" max="64" style="width:80px;">';
+    echo '</label>';
+
     echo '</fieldset>';
 
     // ⑤ 個数（4をデフォルト、8も用意）
@@ -156,91 +192,120 @@ function wphm_render_password_tool_page() {
     echo '</form>';
 
     // JS：プリセットで自動チェック（③の要件をここで満たす）
-    echo '<script>
-(function(){
-  const presetRadios = document.querySelectorAll("input[name=preset]");
-  const upper = document.querySelector("input[name=upper]");
-  const lower = document.querySelector("input[name=lower]");
-  const digit = document.querySelector("input[name=digit]");
-  const symNone = document.querySelector("input[name=symbols_mode][value=none]");
-  const symSome = document.querySelector("input[name=symbols_mode][value=some]");
-  const symBox  = document.getElementById("wphm-symbols-box");
-  const symChecks = () => Array.from(document.querySelectorAll("input[name=\'symbols[]\']"));
+    $js = <<<'JS'
+    (function(){
+      const presetRadios = document.querySelectorAll('input[name="preset"]');
+      const upper = document.querySelector('input[name="upper"]');
+      const lower = document.querySelector('input[name="lower"]');
+      const digit = document.querySelector('input[name="digit"]');
+      const symNone = document.querySelector('input[name="symbols_mode"][value="none"]');
+      const symSome = document.querySelector('input[name="symbols_mode"][value="some"]');
+      const symBox  = document.getElementById('wphm-symbols-box');
+      const btnAll  = document.getElementById('wphm-symbols-all');
 
-  const setSymbols = (arr) => {
-    const set = new Set(arr);
-    symChecks().forEach(cb => { cb.checked = set.has(cb.value); });
-  };
+      const symChecks = () => Array.from(document.querySelectorAll('input[name="symbols[]"]'));
 
-  const setLen = (n) => {
-    const r = document.querySelector("input[name=length][value=\'"+n+"\']");
-    if (r) r.checked = true;
-  };
+      const setSymbols = (arr) => {
+        const set = new Set(arr);
+        symChecks().forEach(cb => { cb.checked = set.has(cb.value); });
+      };
 
-  const setCount = (n) => {
-    const r = document.querySelector("input[name=count][value=\'"+n+"\']");
-    if (r) r.checked = true;
-  };
+      const setLen = (n) => {
+        const r = document.querySelector('input[name="length"][value="' + n + '"]');
+        if (r) r.checked = true;
+      };
 
-  const updateSymbolsVisibility = () => {
-    const mode = document.querySelector("input[name=symbols_mode]:checked")?.value || "some";
-    symBox.style.opacity = (mode === "some") ? "1" : "0.4";
-    symChecks().forEach(cb => cb.disabled = (mode !== "some"));
-  };
+      const setCount = (n) => {
+        const r = document.querySelector('input[name="count"][value="' + n + '"]');
+        if (r) r.checked = true;
+      };
 
-  const applyPreset = (p) => {
-    // セット内容（こちらで決める）
-    if (p === "set1") {
-      // かんたん：小文字＋数字、記号なし、10文字、4個
-      upper.checked = false; lower.checked = true; digit.checked = true;
-      symNone.checked = true; setSymbols([]);
-      setLen(10); setCount(4);
-    } else if (p === "set2") {
-      // 通常：大＋小＋数字、記号少し（-_!@#$%&）、12文字、4個
-      upper.checked = true; lower.checked = true; digit.checked = true;
-      symSome.checked = true; setSymbols(["-","_","!","@","#","$","%","&"]);
-      setLen(12); setCount(4);
-    } else if (p === "set3") {
-      // 強め：大＋小＋数字＋記号、16文字、4個
-      upper.checked = true; lower.checked = true; digit.checked = true;
-      symSome.checked = true; setSymbols(["-","_","/","*","+","!","@","#","$","%","&","=","^","~"]);
-      setLen(16); setCount(4);
-    } else if (p === "set4") {
-      // 最強：大＋小＋数字＋記号多め、20文字、8個
-      upper.checked = true; lower.checked = true; digit.checked = true;
-      symSome.checked = true; setSymbols(["-","_","/","*","+","!","@","#","$","%","&","(",")","[","]","|","=","^","~",",","."]);
-      setLen(20); setCount(8);
-    } else {
-      // custom：触らない（ユーザーが調整）
+      const allSymbolsChecked = () => {
+        const list = symChecks();
+        return list.length > 0 && list.every(cb => cb.checked);
+      };
+
+      const updateSymbolsAllLabel = () => {
+        if (!btnAll) return;
+        const mode = document.querySelector('input[name="symbols_mode"]:checked')?.value || 'some';
+        btnAll.disabled = (mode !== 'some');
+        btnAll.textContent = allSymbolsChecked() ? '全部外す' : '全選択';
+      };
+
+      const updateSymbolsVisibility = () => {
+        const mode = document.querySelector('input[name="symbols_mode"]:checked')?.value || 'some';
+        symBox.style.opacity = (mode === 'some') ? '1' : '0.4';
+        symChecks().forEach(cb => { cb.disabled = (mode !== 'some'); });
+        updateSymbolsAllLabel();
+      };
+
+      const applyPreset = (p) => {
+        if (p === 'set1') {
+          upper.checked = false; lower.checked = true; digit.checked = true;
+          symNone.checked = true; setSymbols([]);
+          setLen(10); setCount(4);
+        } else if (p === 'set2') {
+          upper.checked = true; lower.checked = true; digit.checked = true;
+          symSome.checked = true; setSymbols(['-','_','!','@','#','$','%','&']);
+          setLen(12); setCount(4);
+        } else if (p === 'set3') {
+          upper.checked = true; lower.checked = true; digit.checked = true;
+          symSome.checked = true; setSymbols(['-','_','/','*','+','!','@','#','$','%','&','=','^','~']);
+          setLen(16); setCount(4);
+        } else if (p === 'set4') {
+          upper.checked = true; lower.checked = true; digit.checked = true;
+          symSome.checked = true; setSymbols(['-','_','/','*','+','!','@','#','$','%','&','(',')','[',']','|','=','^','~',',','.']);
+          setLen(20); setCount(8);
+        }
+        updateSymbolsVisibility();
+      };
+
+      presetRadios.forEach(r => r.addEventListener('change', () => applyPreset(r.value)));
+      document.querySelectorAll('input[name="symbols_mode"]').forEach(r => r.addEventListener('change', updateSymbolsVisibility));
+      symChecks().forEach(cb => cb.addEventListener('change', updateSymbolsAllLabel));
+
+    if (btnAll) {
+      btnAll.addEventListener('click', () => {
+        // クリック時点の状態でトグル判定（updateSymbolsVisibilityの前に判定する）
+        const shouldSelectAll = !allSymbolsChecked();
+
+        // 記号ありにする（UI整合）
+        symSome.checked = true;
+        updateSymbolsVisibility();
+
+        // 反映
+        symChecks().forEach(cb => { cb.checked = shouldSelectAll; });
+
+        // ラベル更新（チェック反映後）
+        updateSymbolsAllLabel();
+      });
     }
-    updateSymbolsVisibility();
-  };
 
-  presetRadios.forEach(r => r.addEventListener("change", () => applyPreset(r.value)));
-  document.querySelectorAll("input[name=symbols_mode]").forEach(r => r.addEventListener("change", updateSymbolsVisibility));
-
-  // 初期状態
   updateSymbolsVisibility();
 
-  // Copy
-  document.getElementById("wphm-copy").addEventListener("click", async () => {
-    const t = document.getElementById("wphm-result").value || "";
-    try {
-      await navigator.clipboard.writeText(t);
-      alert("コピーしました");
-    } catch (e) {
-      // フォールバック
-      const el = document.getElementById("wphm-result");
-      el.focus(); el.select();
-      document.execCommand("copy");
-      alert("コピーしました");
-    }
-  });
+  const copyBtn = document.getElementById('wphm-copy');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', async () => {
+      const t = document.getElementById('wphm-result')?.value || '';
+      try {
+        await navigator.clipboard.writeText(t);
+        alert('コピーしました');
+      } catch (e) {
+        const el = document.getElementById('wphm-result');
+        if (el) { el.focus(); el.select(); }
+        document.execCommand('copy');
+        alert('コピーしました');
+      }
+    });
+  }
 })();
-</script>';
+JS;
 
-    echo '</div>';
+echo '<script>' . $js . '</script>';
+
+echo '</div>';
 }
+
 
 function wphm_generate_password($length, array $sets, array $symbols) {
     $upper_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
