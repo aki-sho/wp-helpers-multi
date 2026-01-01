@@ -200,6 +200,90 @@ function wphm_render_timer_tool_page() {
       </section>
     </div>
 
+    
+
+
+<div class="ssc-howto" style="margin-top:16px;padding:12px 14px;background:#fff;border:1px solid #ccd0d4;border-radius:6px;max-width:900px;">
+
+  <hr style="margin:18px 0;">
+
+  <h2 style="margin:0 0 8px;">使い方（短縮版）</h2>
+  <ul style="margin:0 0 10px 20px;">
+    <li>時間を設定（分・秒 / プリセット）</li>
+    <li><strong>開始</strong>でカウントダウン開始</li>
+    <li>必要なら<strong>一時停止</strong> → <strong>再開</strong></li>
+    <li>終了すると終了音（<code>timer-finish.mp3</code>）が鳴ります（ON/OFFがある場合）</li>
+    <li><strong>リセット</strong>で最初の設定に戻します</li>
+  </ul>
+
+  <h3 style="margin:14px 0 6px;">できること</h3>
+  <ul style="margin:0 0 10px 20px;">
+    <li>カウントダウンタイマー（残り時間を表示）</li>
+    <li>プリセット（例：5分 / 10分 / 15分 などをワンクリック）</li>
+    <li>終了通知（音）</li>
+  </ul>
+
+  <h3 style="margin:14px 0 6px;">操作ボタンの意味（分かりづらい所）</h3>
+  <table class="widefat striped" style="max-width:980px;">
+    <thead>
+      <tr>
+        <th style="width:240px;">ボタン</th>
+        <th>意味</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>開始</code></td>
+        <td>設定した時間から減り始めます。</td>
+      </tr>
+      <tr>
+        <td><code>一時停止</code></td>
+        <td>その場で止めます（残り時間はキープ）。</td>
+      </tr>
+      <tr>
+        <td><code>再開</code></td>
+        <td>止めた続きから動きます。</td>
+      </tr>
+      <tr>
+        <td><code>リセット</code></td>
+        <td>残り時間を<strong>最初の設定値</strong>に戻します（ゼロにするのではなく「入力した時間に戻る」）。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin:14px 0 6px;">よくある「うまくいかない」</h3>
+  <ul style="margin:0 0 10px 20px; max-width:980px;">
+    <li>
+      <strong>音が鳴らない：</strong>
+      ブラウザは「ユーザー操作なしの音」をブロックすることがあります。まずボタンを1回押してから試してください。
+      PCのミュート、タブのミュートも確認。
+    </li>
+    <li>
+      <strong>別タブで遅れる/止まったように見える：</strong>
+      裏タブの処理を節約するため、環境によって挙動が変わります。
+    </li>
+    <li>
+      <strong>PCがスリープするとズレる：</strong>
+      スリープ中はカウントが止まる/遅れることがあります。
+    </li>
+  </ul>
+
+  <h3 style="margin:14px 0 6px;">注意</h3>
+  <ul style="margin:0 0 10px 20px;">
+    <li>これは<strong>管理画面のツール</strong>です（サイト訪問者の画面には出ません）。</li>
+    <li>設定の保存（リロードしても継続など）は、実装している場合のみ有効です。</li>
+  </ul>
+
+  <p class="description" style="margin-top:10px;">
+    音源：<code>assets/sounds/timer-finish.mp3</code>（終了） / <code>assets/sounds/ui-click.mp3</code>（操作音）
+  </p>
+
+</div>
+
+
+
+
+
     <script>
       // JSが参照する設定（音源URLなど）
       window.WPHM_TIMER = <?php echo wp_json_encode($config, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
@@ -211,3 +295,5 @@ function wphm_render_timer_tool_page() {
 
     echo '</div>'; // .wrap
 }
+
+?>
