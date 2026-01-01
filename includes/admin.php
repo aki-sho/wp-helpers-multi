@@ -48,7 +48,10 @@ function wphm_render_dashboard() {
 
 function wphm_render_qr()       { wphm_wrap('QRコード', '（ここにQRコード作成ツールを実装します）'); }
 function wphm_render_calc()     { wphm_wrap('電卓', '（ここに電卓ツールを実装します）'); }
-function wphm_render_bcrypt()   { wphm_wrap('bcrypt', '（ここにbcryptツールを実装します）'); }
+function wphm_render_bcrypt() {
+  require_once __DIR__ . '/../tools/bcrypt.php';
+  wphm_render_bcrypt_tool_page();
+}
 function wphm_render_password() {
   require_once __DIR__ . '/../tools/password.php';
   wphm_render_password_tool_page();
