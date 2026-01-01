@@ -57,7 +57,10 @@ function wphm_render_password() {
   require_once __DIR__ . '/../tools/password.php';
   wphm_render_password_tool_page();
 }
-function wphm_render_timer()    { wphm_wrap('タイマー', '（ここにタイマーツールを実装します）'); }
+function wphm_render_timer() {
+  require_once __DIR__ . '/../tools/timer.php';
+  wphm_render_timer_tool_page();
+}
 
 
 // 管理画面の「admin-post.php」経由で投げられた POST を受け取るためのフック。
