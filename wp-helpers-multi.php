@@ -7,3 +7,4 @@
  * Text Domain: wp-helpers-multi
  */
 if (!defined('ABSPATH')) exit;
+require_once __DIR__ . '/includes/loader.php';
