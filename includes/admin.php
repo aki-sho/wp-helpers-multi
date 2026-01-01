@@ -1,8 +1,9 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
+//WordPress管理画面の左メニュー（管理メニュー）を組み立てるタイミングで実行されるフック。
+//ここに登録した処理で、「管理画面メニューに何を表示するか」を追加できる。
 add_action('admin_menu', function () {
-
     // 親メニュー（トップ）
     add_menu_page(
         'WP Helpers Multi',
@@ -59,7 +60,8 @@ function wphm_render_password() {
 function wphm_render_timer()    { wphm_wrap('タイマー', '（ここにタイマーツールを実装します）'); }
 
 
-
+// 管理画面の「admin-post.php」経由で投げられた POST を受け取るためのフック。
+// action=wphm_set_fontsize のリクエストが来たら、wphm_handle_set_fontsize() を実行する。
 add_action('admin_post_wphm_set_fontsize', 'wphm_handle_set_fontsize');
 function wphm_handle_set_fontsize() {
     if (!current_user_can('manage_options')) wp_die('権限がありません');
