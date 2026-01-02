@@ -63,8 +63,9 @@ function wphm_render_timer() {
   wphm_render_timer_tool_page();
 }
 function wphm_render_link_inspector() {
-  require_once __DIR__ . '/../tools/link_inspector.php';
-  wphm_render_link_inspector_tool_page();
+    wphm_wrap('リンク点検', '（テスト表示）');
+//   require_once __DIR__ . '/../tools/link_inspector.php';
+//   wphm_render_link_inspector_tool_page();
 }
 
 // 管理画面の「admin-post.php」経由で投げられた POST を受け取るためのフック。
@@ -105,6 +106,9 @@ add_filter('admin_body_class', function($classes){
     return $classes;
 });
 
+
+
+
 // 文字サイズCSS（ページ共通）
 add_action('admin_head', function(){
     $css = <<<CSS
@@ -125,6 +129,9 @@ body.wphm-fontsize-5 .wphm-app { font-size: 18px; } /* 大 */
 CSS;
     echo '<style>' . $css . '</style>';
 });
+
+
+
 
 // 右端のUI（どのページでも呼べる共通ヘッダー）
 function wphm_render_header($title) {
