@@ -279,75 +279,78 @@ function wphm_handle_link_scan_step() {
     wphm_li_require_cap_or_die();
     wphm_li_verify_nonce_or_die('wphm_link_scan_nonce', 'wphm_link_scan');
 
-    // 何が起きても最後に管理画面へ戻す
+    // 何があっても戻る先
     $back = wphm_li_admin_url(['stepped' => 1]);
 
-    try {
-        $settings = wphm_li_get_settings();
-        $state    = wphm_li_get_state();
+    // まず「来た」ことを状態に書く（ここが残らないなら、その前で死んでる）
+    $st = wphm_li_get_state();
+    $st['last_step_at'] = time();
+    $st['last_error'] = '';
+    wphm_li_update_state($st);
 
-        $queue   = isset($state['queue']) && is_array($state['queue']) ? $state['queue'] : [];
-        $cursor  = isset($state['cursor']) ? (int)$state['cursor'] : 0;
-        $results = isset($state['results']) && is_array($state['results']) ? $state['results'] : [];
-
-        if (empty($queue) || !empty($state['done'])) {
-            wp_safe_redirect($back);
-            exit;
+    // fatal をログに残す（白画面でも debug.log に出る）
+    register_shutdown_function(function() use ($back) {
+        $e = error_get_last();
+        if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+            $st = wphm_li_get_state();
+            $st['last_error'] = $e['message'] . ' in ' . $e['file'] . ':' . $e['line'];
+            wphm_li_update_state($st);
+            // ここでredirectはできないことが多いので、次回画面で err 表示させる
         }
+    });
 
-        $batch = (int)($settings['batch_size'] ?? 20);
-        if ($batch < 5) $batch = 20;
+    // ここから通常処理（落ちても last_error が残る）
+    $settings = wphm_li_get_settings();
+    $state    = wphm_li_get_state();
 
-        $total = count($queue);
-        $end   = min($cursor + $batch, $total);
+    $queue   = isset($state['queue']) && is_array($state['queue']) ? $state['queue'] : [];
+    $cursor  = isset($state['cursor']) ? (int)$state['cursor'] : 0;
+    $results = isset($state['results']) && is_array($state['results']) ? $state['results'] : [];
 
-        $patterns = function_exists('wphm_li_patterns_from_text') ? wphm_li_patterns_from_text($settings['bad_patterns'] ?? '') : [];
-        $target_host = strtolower($settings['target_host'] ?? '');
-        $typo_threshold = function_exists('wphm_li_typo_threshold') ? wphm_li_typo_threshold($settings['typo_level'] ?? 'weak') : 1;
-        $types = isset($settings['types']) && is_array($settings['types']) ? $settings['types'] : ['a'=>1,'img'=>1,'video'=>0,'source'=>0];
-
-        for ($i = $cursor; $i < $end; $i++) {
-            $url = $queue[$i];
-
-            // ここで落ちやすい：url_to_postid / DOM / levenshtein
-            $post_id = function_exists('url_to_postid') ? url_to_postid($url) : 0;
-            if (!$post_id) continue;
-
-            $post = get_post($post_id);
-            if (!$post || $post->post_status !== 'publish') continue;
-
-            if (!function_exists('wphm_li_scan_post_for_bad_links')) continue;
-            $found = wphm_li_scan_post_for_bad_links($post, $types, $patterns, $target_host, $typo_threshold);
-
-            if (!empty($found) && is_array($found)) {
-                foreach ($found as $row) {
-                    $results[] = $row;
-                }
-                $max = (int)($settings['max_results'] ?? 5000);
-                if ($max > 0 && count($results) > $max) {
-                    $results = array_slice($results, -$max);
-                }
-            }
-        }
-
-        $cursor = $end;
-        $state['cursor']  = $cursor;
-        $state['results'] = $results;
-        $state['done']    = ($cursor >= $total);
-
-        wphm_li_update_state($state);
+    if (empty($queue) || !empty($state['done'])) {
         wp_safe_redirect($back);
         exit;
-
-    } catch (Throwable $e) {
-        // 画面は壊さず、状態にエラーだけ保存して戻す
-        $state = wphm_li_get_state();
-        $state['last_error'] = $e->getMessage();
-        wphm_li_update_state($state);
-
-        wp_safe_redirect(add_query_arg(['err'=>1], $back));
-        exit;
     }
+
+    $batch = (int)($settings['batch_size'] ?? 20);
+    if ($batch < 5) $batch = 20;
+    if ($batch > 100) $batch = 100;
+
+    $total = count($queue);
+    $end   = min($cursor + $batch, $total);
+
+    $patterns = wphm_li_patterns_from_text($settings['bad_patterns'] ?? '');
+    $target_host = strtolower($settings['target_host'] ?? '');
+    $typo_threshold = wphm_li_typo_threshold($settings['typo_level'] ?? 'weak');
+    $types = isset($settings['types']) && is_array($settings['types']) ? $settings['types'] : ['a'=>1,'img'=>1,'video'=>0,'source'=>0];
+
+    for ($i = $cursor; $i < $end; $i++) {
+        $url = $queue[$i];
+
+        $post_id = function_exists('url_to_postid') ? url_to_postid($url) : 0;
+        if (!$post_id) continue;
+
+        $post = get_post($post_id);
+        if (!$post || $post->post_status !== 'publish') continue;
+
+        // ★ここで落ちやすい：DOMDocument / DOMXPath / levenshtein
+        $found = wphm_li_scan_post_for_bad_links($post, $types, $patterns, $target_host, $typo_threshold);
+
+        if (!empty($found)) {
+            foreach ($found as $row) $results[] = $row;
+            $max = (int)($settings['max_results'] ?? 5000);
+            if ($max > 0 && count($results) > $max) $results = array_slice($results, -$max);
+        }
+    }
+
+    $cursor = $end;
+    $state['cursor']  = $cursor;
+    $state['results'] = $results;
+    $state['done']    = ($cursor >= $total);
+    wphm_li_update_state($state);
+
+    wp_safe_redirect($back);
+    exit;
 }
 
 /**
