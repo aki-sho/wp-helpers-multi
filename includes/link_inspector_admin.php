@@ -1,4 +1,7 @@
 <?php
+if (defined('WPHM_LINK_INSPECTOR_LOADED')) return;
+define('WPHM_LINK_INSPECTOR_LOADED', 1);
+
 if (!defined('ABSPATH')) exit;
 
 /**
@@ -486,23 +489,43 @@ function wphm_li_extract_links_from_html(string $html, array $types): array {
     $xpath = new DOMXPath($dom);
 
     if (!empty($types['a'])) {
-        foreach ($xpath->query('//a[@href]') as $n) {
-            $out[] = ['type' => 'a', 'url' => $n->getAttribute('href')];
+        $nodes = $xpath->query('//a[@href]');
+        if ($nodes instanceof DOMNodeList) {
+          foreach ($nodes as $n) {
+            if ($n instanceof DOMElement) {
+              $out[] = ['type' => 'a', 'url' => $n->getAttribute('href')];
+            }
+          }
         }
     }
     if (!empty($types['img'])) {
-        foreach ($xpath->query('//img[@src]') as $n) {
-            $out[] = ['type' => 'img', 'url' => $n->getAttribute('src')];
+        $nodes = $xpath->query('//a[@href]');
+        if ($nodes instanceof DOMNodeList) {
+          foreach ($nodes as $n) {
+            if ($n instanceof DOMElement) {
+              $out[] = ['type' => 'img', 'url' => $n->getAttribute('href')];
+            }
+          }
         }
     }
     if (!empty($types['video'])) {
-        foreach ($xpath->query('//video[@src]') as $n) {
-            $out[] = ['type' => 'video', 'url' => $n->getAttribute('src')];
+        $nodes = $xpath->query('//a[@href]');
+        if ($nodes instanceof DOMNodeList) {
+          foreach ($nodes as $n) {
+            if ($n instanceof DOMElement) {
+              $out[] = ['type' => 'video', 'url' => $n->getAttribute('href')];
+            }
+          }
         }
     }
     if (!empty($types['source'])) {
-        foreach ($xpath->query('//source[@src]') as $n) {
-            $out[] = ['type' => 'source', 'url' => $n->getAttribute('src')];
+        $nodes = $xpath->query('//a[@href]');
+        if ($nodes instanceof DOMNodeList) {
+          foreach ($nodes as $n) {
+            if ($n instanceof DOMElement) {
+              $out[] = ['type' => 'source', 'url' => $n->getAttribute('href')];
+            }
+          }
         }
     }
 
