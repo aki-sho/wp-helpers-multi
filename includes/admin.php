@@ -1,10 +1,19 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-//WordPress管理画面の左メニュー（管理メニュー）を組み立てるタイミングで実行されるフック。
-//ここに登録した処理で、「管理画面メニューに何を表示するか」を追加できる。
-add_action('admin_menu', function () {
-    // 親メニュー（トップ）
+/**
+ * WP Helpers Multi - Admin
+ * - menu registrations
+ * - common UI (header / font size)
+ */
+
+/* =========================
+ * Menu
+ * ========================= */
+add_action('admin_menu', 'wphm_register_admin_menu');
+function wphm_register_admin_menu() {
+
+    // 親メニュー
     add_menu_page(
         'WP Helpers Multi',
         'WP Helpers Multi',
@@ -15,7 +24,7 @@ add_action('admin_menu', function () {
         60
     );
 
-    // 子メニュー：ダッシュボード（親と同じslugのページを“ダッシュボード”として表示）
+    // 子メニュー：Dashboard（親と同じslug）
     add_submenu_page(
         'wp-helpers-multi',
         'Dashboard',
@@ -25,66 +34,98 @@ add_action('admin_menu', function () {
         'wphm_render_dashboard'
     );
 
-    // 子メニュー：各ツール（中身は後で実装）
-    add_submenu_page('wp-helpers-multi', 'QRコード', 'QRコード', 'manage_options', 'wphm-qr', 'wphm_render_qr');
-    add_submenu_page('wp-helpers-multi', '電卓', '電卓', 'manage_options', 'wphm-calc', 'wphm_render_calc');
-    add_submenu_page('wp-helpers-multi', 'bcrypt', 'bcrypt', 'manage_options', 'wphm-bcrypt', 'wphm_render_bcrypt');
-    add_submenu_page('wp-helpers-multi', 'パスワード生成', 'パスワード生成', 'manage_options', 'wphm-password', 'wphm_render_password');
-    add_submenu_page('wp-helpers-multi', 'タイマー', 'タイマー', 'manage_options', 'wphm-timer', 'wphm_render_timer');
-    add_submenu_page('wp-helpers-multi', 'リンク点検', 'リンク点検', 'manage_options', 'wphm-link-inspector', 'wphm_render_link_inspector');
-});
+    // 子メニュー：各ツール
+    add_submenu_page('wp-helpers-multi', 'QRコード',       'QRコード',       'manage_options', 'wphm-qr',            'wphm_render_qr');
+    add_submenu_page('wp-helpers-multi', '電卓',           '電卓',           'manage_options', 'wphm-calc',          'wphm_render_calc');
+    add_submenu_page('wp-helpers-multi', 'bcrypt',         'bcrypt',         'manage_options', 'wphm-bcrypt',        'wphm_render_bcrypt');
+    add_submenu_page('wp-helpers-multi', 'パスワード生成', 'パスワード生成', 'manage_options', 'wphm-password',      'wphm_render_password');
+    add_submenu_page('wp-helpers-multi', 'タイマー',       'タイマー',       'manage_options', 'wphm-timer',         'wphm_render_timer');
+    add_submenu_page('wp-helpers-multi', 'リンク点検',     'リンク点検',     'manage_options', 'wphm-link-inspector','wphm_render_link_inspector');
+}
 
-function wphm_wrap($title, $desc = '') {
+/* =========================
+ * Page helpers
+ * ========================= */
+function wphm_wrap($title, $desc = ''): void {
     if (!current_user_can('manage_options')) return;
-    echo '<div class="wrap">';
-    echo '<h1>' . esc_html($title) . '</h1>';
-    if ($desc !== '') {
-        echo '<p>' . esc_html($desc) . '</p>';
-    }
+    echo '<div class="wrap wphm-app">';
+    echo '<h1 style="margin:0 0 8px;">' . esc_html($title) . '</h1>';
+    if ($desc !== '') echo '<p>' . esc_html($desc) . '</p>';
     echo '</div>';
 }
 
-function wphm_render_dashboard() {
+function wphm_render_dashboard(): void {
     wphm_wrap('WP Helpers Multi', 'ここにツールを追加していきます。左の子メニューから各ツールへ。');
 }
 
-function wphm_render_qr()       { wphm_wrap('QRコード', '（ここにQRコード作成ツールを実装します）'); }
-function wphm_render_calc()     { wphm_wrap('電卓', '（ここに電卓ツールを実装します）'); }
-function wphm_render_bcrypt() {
-  require_once __DIR__ . '/../tools/bcrypt.php';
-  wphm_render_bcrypt_tool_page();
-}
-function wphm_render_password() {
-  require_once __DIR__ . '/../tools/password.php';
-  wphm_render_password_tool_page();
-}
-function wphm_render_timer() {
-  require_once __DIR__ . '/../tools/timer.php';
-  wphm_render_timer_tool_page();
-}
-function wphm_render_link_inspector() {
-  require_once __DIR__ . '/../tools/link_inspector.php';
-  wphm_render_link_inspector_tool_page();
+function wphm_render_qr(): void   { wphm_wrap('QRコード', '（ここにQRコード作成ツールを実装します）'); }
+function wphm_render_calc(): void { wphm_wrap('電卓', '（ここに電卓ツールを実装します）'); }
+
+function wphm_render_bcrypt(): void {
+    require_once __DIR__ . '/../tools/bcrypt.php';
+    if (function_exists('wphm_render_bcrypt_tool_page')) {
+        wphm_render_bcrypt_tool_page();
+        return;
+    }
+    wphm_wrap('bcrypt', 'エラー: tools/bcrypt.php は読み込みましたが wphm_render_bcrypt_tool_page() がありません。');
 }
 
-// 管理画面の「admin-post.php」経由で投げられた POST を受け取るためのフック。
-// action=wphm_set_fontsize のリクエストが来たら、wphm_handle_set_fontsize() を実行する。
+function wphm_render_password(): void {
+    require_once __DIR__ . '/../tools/password.php';
+    if (function_exists('wphm_render_password_tool_page')) {
+        wphm_render_password_tool_page();
+        return;
+    }
+    wphm_wrap('パスワード生成', 'エラー: tools/password.php は読み込みましたが wphm_render_password_tool_page() がありません。');
+}
+
+function wphm_render_timer(): void {
+    require_once __DIR__ . '/../tools/timer.php';
+    if (function_exists('wphm_render_timer_tool_page')) {
+        wphm_render_timer_tool_page();
+        return;
+    }
+    wphm_wrap('タイマー', 'エラー: tools/timer.php は読み込みましたが wphm_render_timer_tool_page() がありません。');
+}
+
+function wphm_render_link_inspector(): void {
+    if (!current_user_can('manage_options')) return;
+
+    $path = __DIR__ . '/../tools/link_inspector.php';
+
+    if (!file_exists($path)) {
+        wphm_wrap('リンク点検', 'エラー: tools/link_inspector.php が見つかりません。');
+        return;
+    }
+
+    require_once $path;
+    if (!function_exists('wphm_render_link_inspector_tool_page')) {
+        wphm_wrap('リンク点検', 'エラー: link_inspector.php を読み込みましたが wphm_render_link_inspector_tool_page() がありません。');
+        return;
+    }
+
+    wphm_render_link_inspector_tool_page();
+}
+
+/* =========================
+ * Font size (common UI)
+ * ========================= */
 add_action('admin_post_wphm_set_fontsize', 'wphm_handle_set_fontsize');
-function wphm_handle_set_fontsize() {
+function wphm_handle_set_fontsize(): void {
     if (!current_user_can('manage_options')) wp_die('権限がありません');
 
     if (!isset($_POST['wphm_fontsize_nonce']) || !wp_verify_nonce($_POST['wphm_fontsize_nonce'], 'wphm_fontsize')) {
         wp_die('Nonceが不正です。');
     }
 
-    $val = isset($_POST['wphm_fontsize']) ? (int)$_POST['wphm_fontsize'] : 3; // 標準=3
+    $val = isset($_POST['wphm_fontsize']) ? (int)$_POST['wphm_fontsize'] : 3;
     $allowed = [1,2,3,4,5];
     if (!in_array($val, $allowed, true)) $val = 3;
 
     update_user_meta(get_current_user_id(), 'wphm_fontsize', $val);
 
     $redirect = wp_get_referer();
-    if (!$redirect && !empty($_POST['redirect_to'])) $redirect = esc_url_raw($_POST['redirect_to']);
+    if (!$redirect && !empty($_POST['redirect_to'])) $redirect = esc_url_raw((string)$_POST['redirect_to']);
     if (!$redirect) $redirect = admin_url('admin.php?page=wp-helpers-multi');
 
     wp_safe_redirect($redirect);
@@ -96,20 +137,25 @@ function wphm_get_fontsize_value(): int {
     return ($v >= 1 && $v <= 5) ? $v : 3;
 }
 
-// WP Helpers Multi のページだけ body class を付ける
-add_filter('admin_body_class', function($classes){
-    $page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : '';
+/**
+ * WP Helpers Multi のページだけ body class を付ける
+ * - wp-helpers-multi（ダッシュボード）
+ * - wphm-...（各ツール）
+ */
+add_filter('admin_body_class', 'wphm_admin_body_class');
+function wphm_admin_body_class(string $classes): string {
+    $page = isset($_GET['page']) ? sanitize_text_field((string)$_GET['page']) : '';
     if ($page && (strpos($page, 'wphm') === 0 || $page === 'wp-helpers-multi')) {
         $classes .= ' wphm-fontsize-' . wphm_get_fontsize_value();
     }
     return $classes;
-});
+}
 
-
-
-
-// 文字サイズCSS（ページ共通）
-add_action('admin_head', function(){
+/* =========================
+ * Common CSS
+ * ========================= */
+add_action('admin_head', 'wphm_admin_common_css');
+function wphm_admin_common_css(): void {
     $css = <<<CSS
 /* WP Helpers Multi 全ページで効く */
 .wphm-app { font-size: 14px; } /* 標準のベース */
@@ -127,13 +173,12 @@ body.wphm-fontsize-5 .wphm-app { font-size: 18px; } /* 大 */
 .wphm-fontsize-control select { min-width: 140px; }
 CSS;
     echo '<style>' . $css . '</style>';
-});
+}
 
-
-
-
-// 右端のUI（どのページでも呼べる共通ヘッダー）
-function wphm_render_header($title) {
+/* =========================
+ * Common header
+ * ========================= */
+function wphm_render_header(string $title): void {
     $v = wphm_get_fontsize_value();
     $options = [
         1 => '小',

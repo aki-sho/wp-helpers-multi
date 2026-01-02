@@ -1,19 +1,11 @@
 <?php
+/* =========================
+ * tools/link_inspector.php（完成版・これに丸ごと差し替え）
+ * ========================= */
 if (!defined('ABSPATH')) exit;
-
-/**
- * Link Inspector (function-based)
- * - Start: build sitemap URL queue and save state
- * - Step: process N URLs per click (default 20)
- * - Detect: substring match (bad patterns) + typo host distance (weak/med/high)
- */
 
 const WPHM_LI_OPT_SETTINGS = 'wphm_link_inspector_settings';
 const WPHM_LI_OPT_STATE    = 'wphm_link_inspector_state';
-
-add_action('admin_post_wphm_link_scan_start', 'wphm_handle_link_scan_start');
-add_action('admin_post_wphm_link_scan_step',  'wphm_handle_link_scan_step');
-add_action('admin_post_wphm_link_scan_reset', 'wphm_handle_link_scan_reset');
 
 function wphm_li_defaults_settings(): array {
     return [
@@ -30,6 +22,7 @@ function wphm_li_defaults_settings(): array {
         'batch_size'    => 20,
         'timeout'       => 8,
         'max_results'   => 5000,
+        'max_queue'     => 20000, // sitemap から拾う上限（DB/メモリ保護）
     ];
 }
 
@@ -37,10 +30,18 @@ function wphm_li_get_settings(): array {
     $d = wphm_li_defaults_settings();
     $s = get_option(WPHM_LI_OPT_SETTINGS, []);
     if (!is_array($s)) $s = [];
-    // shallow merge
+
     $s = array_merge($d, $s);
     if (!isset($s['types']) || !is_array($s['types'])) $s['types'] = $d['types'];
     $s['types'] = array_merge($d['types'], $s['types']);
+
+    $s['batch_size']  = max(5, min(100, (int)($s['batch_size'] ?? 20)));
+    $s['timeout']     = max(3, min(30, (int)($s['timeout'] ?? 8)));
+    $s['max_results'] = max(100, min(50000, (int)($s['max_results'] ?? 5000)));
+    $s['max_queue']   = max(100, min(200000, (int)($s['max_queue'] ?? 20000)));
+
+    if (!in_array($s['typo_level'], ['weak','medium','high'], true)) $s['typo_level'] = 'weak';
+    $s['target_host'] = strtolower(trim((string)($s['target_host'] ?? '')));
     return $s;
 }
 
@@ -63,28 +64,52 @@ function wphm_li_clear_state(): void {
 
 function wphm_li_admin_url(array $q = []): string {
     $base = admin_url('admin.php?page=wphm-link-inspector');
-    if (!$q) return $base;
-    return add_query_arg($q, $base);
+    return $q ? add_query_arg($q, $base) : $base;
 }
 
 function wphm_li_require_cap_or_die(): void {
     if (!current_user_can('manage_options')) wp_die('権限がありません');
 }
+/** =========================
+ * POST handler（表示関数の先頭で実行）
+ * ========================= */
+function wphm_li_handle_post_on_render(): void {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') return;
+    if (empty($_POST['wphm_li_do'])) return;
 
-function wphm_li_verify_nonce_or_die(string $field, string $action): void {
-    if (!isset($_POST[$field]) || !wp_verify_nonce($_POST[$field], $action)) {
+    if (!isset($_POST['wphm_link_scan_nonce']) || !wp_verify_nonce($_POST['wphm_link_scan_nonce'], 'wphm_link_scan')) {
         wp_die('Nonceが不正です。');
+    }
+
+    $do = sanitize_text_field((string)$_POST['wphm_li_do']);
+
+    if ($do === 'start') {
+        wphm_li_do_start();
+        wp_safe_redirect(wphm_li_admin_url(['started' => 1]));
+        exit;
+    }
+    if ($do === 'step') {
+        wphm_li_do_step();
+        wp_safe_redirect(wphm_li_admin_url(['stepped' => 1]));
+        exit;
+    }
+    if ($do === 'reset') {
+        wphm_li_clear_state();
+        wp_safe_redirect(wphm_li_admin_url(['reset' => 1]));
+        exit;
     }
 }
 
-/**
- * Render admin page
- */
+/** =========================
+ * RENDER
+ * ========================= */
 function wphm_render_link_inspector_tool_page() {
-    wphm_li_require_cap_or_die();
+
+  wphm_li_handle_post_on_render();
 
     $settings = wphm_li_get_settings();
     $state    = wphm_li_get_state();
+    $action   = wphm_li_admin_url();
 
     echo '<div class="wrap wphm-app">';
     if (function_exists('wphm_render_header')) {
@@ -93,34 +118,30 @@ function wphm_render_link_inspector_tool_page() {
         echo '<h1>リンク点検</h1>';
     }
 
-    // notices (simple)
     if (!empty($_GET['started'])) echo '<div class="notice notice-success"><p>スキャンを開始しました。</p></div>';
     if (!empty($_GET['stepped'])) echo '<div class="notice notice-info"><p>バッチ処理を実行しました。</p></div>';
     if (!empty($_GET['reset']))   echo '<div class="notice notice-warning"><p>状態をリセットしました。</p></div>';
 
-
-    if (!empty($_GET['err'])) {
-        $st = wphm_li_get_state();
-        $msg = $st['last_error'] ?? '不明なエラー';
-        echo '<div class="notice notice-error"><p>STEPでエラー: ' . esc_html($msg) . '</p></div>';
+    if (!empty($state['last_error'])) {
+        echo '<div class="notice notice-error"><p>エラー: ' . esc_html((string)$state['last_error']) . '</p></div>';
     }
 
-    // SETTINGS + START
+    // ===== 設定 & 開始 =====
     echo '<h2 style="margin-top:12px;">設定 & 開始</h2>';
-    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-    echo '<input type="hidden" name="action" value="wphm_link_scan_start">';
+    echo '<form method="post" action="' . esc_url($action) . '">';
     wp_nonce_field('wphm_link_scan', 'wphm_link_scan_nonce');
+    echo '<input type="hidden" name="wphm_li_do" value="start">';
 
     echo '<table class="form-table" role="presentation"><tbody>';
 
     echo '<tr><th scope="row"><label>サイトマップURL</label></th><td>';
-    echo '<input type="url" name="sitemap_url" style="width: 100%; max-width: 720px;" value="' . esc_attr($settings['sitemap_url']) . '">';
+    echo '<input type="url" name="sitemap_url" style="width:100%; max-width:720px;" value="' . esc_attr($settings['sitemap_url']) . '">';
     echo '<p class="description">例：' . esc_html(home_url('/sitemap.xml')) . '</p>';
     echo '</td></tr>';
 
     echo '<tr><th scope="row"><label>一致パターン（部分一致）</label></th><td>';
-    echo '<textarea name="bad_patterns" rows="5" style="width: 100%; max-width: 720px;">' . esc_textarea($settings['bad_patterns']) . '</textarea>';
-    echo '<p class="description">1行=1パターン。例：https://v2.pretty-cute.info/ を含めば一致。</p>';
+    echo '<textarea name="bad_patterns" rows="5" style="width:100%; max-width:720px;">' . esc_textarea($settings['bad_patterns']) . '</textarea>';
+    echo '<p class="description">1行=1パターン。含んでいれば一致。</p>';
     echo '</td></tr>';
 
     echo '<tr><th scope="row"><label>typo検出（弱/中/高）</label></th><td>';
@@ -130,7 +151,7 @@ function wphm_render_link_inspector_tool_page() {
         echo '<option value="' . esc_attr($k) . '" ' . selected($settings['typo_level'], $k, false) . '>' . esc_html($label) . '</option>';
     }
     echo '</select>';
-    echo '　<span class="description">正しいホスト：</span> <input type="text" name="target_host" value="' . esc_attr($settings['target_host']) . '" style="width: 220px;">';
+    echo '　<span class="description">正しいホスト：</span> <input type="text" name="target_host" value="' . esc_attr($settings['target_host']) . '" style="width:220px;">';
     echo '</td></tr>';
 
     echo '<tr><th scope="row"><label>対象リンク種別</label></th><td>';
@@ -141,8 +162,8 @@ function wphm_render_link_inspector_tool_page() {
     echo '</td></tr>';
 
     echo '<tr><th scope="row"><label>バッチサイズ</label></th><td>';
-    echo '<input type="number" name="batch_size" min="5" max="100" value="' . (int)$settings['batch_size'] . '" style="width: 90px;">';
-    echo ' <span class="description">（1回の「次を処理」で処理するURL数）</span>';
+    echo '<input type="number" name="batch_size" min="5" max="100" value="' . (int)$settings['batch_size'] . '" style="width:90px;">';
+    echo ' <span class="description">（1回で処理するURL数）</span>';
     echo '</td></tr>';
 
     echo '</tbody></table>';
@@ -150,40 +171,40 @@ function wphm_render_link_inspector_tool_page() {
     echo '<p><button class="button button-primary" type="submit">スキャン開始（キュー作成）</button></p>';
     echo '</form>';
 
-    // PROGRESS + STEP
+    // ===== 進捗 =====
     echo '<hr style="margin:18px 0;">';
     echo '<h2>進捗</h2>';
 
-    $queue_total  = isset($state['queue']) && is_array($state['queue']) ? count($state['queue']) : 0;
-    $cursor       = isset($state['cursor']) ? (int)$state['cursor'] : 0;
-    $done         = !empty($state['done']);
-    $results_cnt  = isset($state['results']) && is_array($state['results']) ? count($state['results']) : 0;
+    $queue_total = isset($state['queue']) && is_array($state['queue']) ? count($state['queue']) : 0;
+    $cursor      = isset($state['cursor']) ? (int)$state['cursor'] : 0;
+    $done        = !empty($state['done']);
+    $results_cnt = isset($state['results']) && is_array($state['results']) ? count($state['results']) : 0;
 
     if ($queue_total === 0) {
-        echo '<p>まだ開始していません。「スキャン開始（キュー作成）」を押してください。</p>';
+        echo '<p>まだ開始していません。</p>';
     } else {
         $c = min($cursor, $queue_total);
-        echo '<p><strong>' . esc_html($c) . '</strong> / <strong>' . esc_html($queue_total) . '</strong> URL 処理済み';
-        echo '　/　検出結果：<strong>' . esc_html($results_cnt) . '</strong> 件';
+        echo '<p><strong>' . esc_html((string)$c) . '</strong> / <strong>' . esc_html((string)$queue_total) . '</strong> URL 処理済み';
+        echo '　/　検出結果：<strong>' . esc_html((string)$results_cnt) . '</strong> 件';
         if ($done) echo '　/　<strong style="color:#0a7;">完了</strong>';
         echo '</p>';
 
         if (!$done) {
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block; margin-right:8px;">';
-            echo '<input type="hidden" name="action" value="wphm_link_scan_step">';
+            echo '<form method="post" action="' . esc_url($action) . '" style="display:inline-block; margin-right:8px;">';
             wp_nonce_field('wphm_link_scan', 'wphm_link_scan_nonce');
+            echo '<input type="hidden" name="wphm_li_do" value="step">';
             echo '<button class="button button-secondary" type="submit">次のバッチを処理</button>';
             echo '</form>';
         }
 
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;">';
-        echo '<input type="hidden" name="action" value="wphm_link_scan_reset">';
+        echo '<form method="post" action="' . esc_url($action) . '" style="display:inline-block;">';
         wp_nonce_field('wphm_link_scan', 'wphm_link_scan_nonce');
+        echo '<input type="hidden" name="wphm_li_do" value="reset">';
         echo '<button class="button" type="submit" onclick="return confirm(\'状態をリセットします。よろしいですか？\');">リセット</button>';
         echo '</form>';
     }
 
-    // RESULTS
+    // ===== 結果 =====
     echo '<hr style="margin:18px 0;">';
     echo '<h2>検出結果</h2>';
 
@@ -191,16 +212,13 @@ function wphm_render_link_inspector_tool_page() {
     if (empty($results)) {
         echo '<p>まだ結果はありません。</p>';
     } else {
-        echo '<div style="overflow:auto; max-width: 100%;">';
-        echo '<table class="widefat striped" style="min-width: 980px;">';
-        echo '<thead><tr>';
-        echo '<th>投稿</th><th>投稿URL</th><th>検出リンク</th><th>種別</th><th>理由</th>';
-        echo '</tr></thead><tbody>';
+        echo '<div style="overflow:auto; max-width:100%;">';
+        echo '<table class="widefat striped" style="min-width:980px;">';
+        echo '<thead><tr><th>投稿</th><th>投稿URL</th><th>検出リンク</th><th>種別</th><th>理由</th></tr></thead><tbody>';
 
-        // show latest first
-        $show = array_reverse($results);
-        $limit = min(300, count($show)); // UIは重いので最大300行だけ表示（保存はmax_resultsまで）
-        for ($i=0; $i<$limit; $i++) {
+        $show  = array_reverse($results);
+        $limit = min(300, count($show));
+        for ($i = 0; $i < $limit; $i++) {
             $r = $show[$i];
             echo '<tr>';
             echo '<td>' . esc_html($r['post_title'] ?? '') . ' (#' . (int)($r['post_id'] ?? 0) . ')</td>';
@@ -210,6 +228,7 @@ function wphm_render_link_inspector_tool_page() {
             echo '<td>' . esc_html($r['reason'] ?? '') . '</td>';
             echo '</tr>';
         }
+
         echo '</tbody></table></div>';
 
         if (count($results) > 300) {
@@ -217,16 +236,13 @@ function wphm_render_link_inspector_tool_page() {
         }
     }
 
-    echo '</div>'; // .wrap
+    echo '</div>';
 }
 
-/**
- * START: save settings, build sitemap URL queue, init state
- */
-function wphm_handle_link_scan_start() {
-    wphm_li_require_cap_or_die();
-    wphm_li_verify_nonce_or_die('wphm_link_scan_nonce', 'wphm_link_scan');
-
+/** =========================
+ * START / STEP
+ * ========================= */
+function wphm_li_do_start(): void {
     $d = wphm_li_defaults_settings();
 
     $sitemap_url  = isset($_POST['sitemap_url']) ? esc_url_raw(trim((string)$_POST['sitemap_url'])) : $d['sitemap_url'];
@@ -236,14 +252,11 @@ function wphm_handle_link_scan_start() {
     $batch_size   = isset($_POST['batch_size']) ? (int)$_POST['batch_size'] : (int)$d['batch_size'];
 
     if (!in_array($typo_level, ['weak','medium','high'], true)) $typo_level = $d['typo_level'];
-    if ($batch_size < 5) $batch_size = 5;
-    if ($batch_size > 100) $batch_size = 100;
+    $batch_size = max(5, min(100, $batch_size));
 
     $types = $d['types'];
     if (isset($_POST['types']) && is_array($_POST['types'])) {
-        foreach ($types as $k => $_) {
-            $types[$k] = !empty($_POST['types'][$k]) ? 1 : 0;
-        }
+        foreach ($types as $k => $_) $types[$k] = !empty($_POST['types'][$k]) ? 1 : 0;
     }
 
     $settings = wphm_li_get_settings();
@@ -256,50 +269,30 @@ function wphm_handle_link_scan_start() {
 
     wphm_li_update_settings($settings);
 
-    // Build queue from sitemap
-    $queue = wphm_li_build_queue_from_sitemap($settings['sitemap_url'], (int)$settings['timeout']);
+    $queue = wphm_li_build_queue_from_sitemap($settings['sitemap_url'], (int)$settings['timeout'], (int)$settings['max_queue']);
 
-    $state = [
-        'queue'     => $queue,
-        'cursor'    => 0,
-        'results'   => [],
-        'done'      => empty($queue) ? true : false,
-        'started_at'=> time(),
-    ];
-    wphm_li_update_state($state);
-
-    wp_safe_redirect(wphm_li_admin_url(['started' => 1]));
-    exit;
+    wphm_li_update_state([
+        'queue'       => $queue,
+        'cursor'      => 0,
+        'results'     => [],
+        'done'        => empty($queue),
+        'started_at'  => time(),
+        'last_step_at'=> 0,
+        'last_error'  => '',
+    ]);
 }
 
-/**
- * STEP: process N URLs from queue
- */
-function wphm_handle_link_scan_step() {
-    wphm_li_require_cap_or_die();
-    wphm_li_verify_nonce_or_die('wphm_link_scan_nonce', 'wphm_link_scan');
-
-    // 何があっても戻る先
-    $back = wphm_li_admin_url(['stepped' => 1]);
-
-    // まず「来た」ことを状態に書く（ここが残らないなら、その前で死んでる）
-    $st = wphm_li_get_state();
-    $st['last_step_at'] = time();
-    $st['last_error'] = '';
-    wphm_li_update_state($st);
-
-    // fatal をログに残す（白画面でも debug.log に出る）
-    register_shutdown_function(function() use ($back) {
+function wphm_li_do_step(): void {
+    // fatalをstateに残す
+    register_shutdown_function(function() {
         $e = error_get_last();
         if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
             $st = wphm_li_get_state();
             $st['last_error'] = $e['message'] . ' in ' . $e['file'] . ':' . $e['line'];
             wphm_li_update_state($st);
-            // ここでredirectはできないことが多いので、次回画面で err 表示させる
         }
     });
 
-    // ここから通常処理（落ちても last_error が残る）
     $settings = wphm_li_get_settings();
     $state    = wphm_li_get_state();
 
@@ -307,95 +300,98 @@ function wphm_handle_link_scan_step() {
     $cursor  = isset($state['cursor']) ? (int)$state['cursor'] : 0;
     $results = isset($state['results']) && is_array($state['results']) ? $state['results'] : [];
 
-    if (empty($queue) || !empty($state['done'])) {
-        wp_safe_redirect($back);
-        exit;
-    }
+    if (empty($queue) || !empty($state['done'])) return;
 
-    $batch = (int)($settings['batch_size'] ?? 20);
-    if ($batch < 5) $batch = 20;
-    if ($batch > 100) $batch = 100;
-
+    $batch = max(5, min(100, (int)($settings['batch_size'] ?? 20)));
     $total = count($queue);
     $end   = min($cursor + $batch, $total);
 
-    $patterns = wphm_li_patterns_from_text($settings['bad_patterns'] ?? '');
-    $target_host = strtolower($settings['target_host'] ?? '');
-    $typo_threshold = wphm_li_typo_threshold($settings['typo_level'] ?? 'weak');
-    $types = isset($settings['types']) && is_array($settings['types']) ? $settings['types'] : ['a'=>1,'img'=>1,'video'=>0,'source'=>0];
+    $patterns       = wphm_li_patterns_from_text($settings['bad_patterns'] ?? '');
+    $target_host    = strtolower((string)($settings['target_host'] ?? ''));
+    $typo_threshold = wphm_li_typo_threshold((string)($settings['typo_level'] ?? 'weak'));
+    $types          = isset($settings['types']) && is_array($settings['types']) ? $settings['types'] : ['a'=>1,'img'=>1,'video'=>0,'source'=>0];
 
     for ($i = $cursor; $i < $end; $i++) {
-        $url = $queue[$i];
+        $url = (string)$queue[$i];
 
-        $post_id = function_exists('url_to_postid') ? url_to_postid($url) : 0;
+        $post_id = function_exists('url_to_postid') ? (int)url_to_postid($url) : 0;
         if (!$post_id) continue;
 
         $post = get_post($post_id);
         if (!$post || $post->post_status !== 'publish') continue;
 
-        // ★ここで落ちやすい：DOMDocument / DOMXPath / levenshtein
         $found = wphm_li_scan_post_for_bad_links($post, $types, $patterns, $target_host, $typo_threshold);
-
         if (!empty($found)) {
             foreach ($found as $row) $results[] = $row;
+
             $max = (int)($settings['max_results'] ?? 5000);
             if ($max > 0 && count($results) > $max) $results = array_slice($results, -$max);
         }
     }
 
-    $cursor = $end;
-    $state['cursor']  = $cursor;
-    $state['results'] = $results;
-    $state['done']    = ($cursor >= $total);
+    $state['cursor']       = $end;
+    $state['results']      = $results;
+    $state['done']         = ($end >= $total);
+    $state['last_step_at'] = time();
+    $state['last_error']   = '';
+
     wphm_li_update_state($state);
-
-    wp_safe_redirect($back);
-    exit;
 }
 
-/**
- * RESET: clear state only
- */
-function wphm_handle_link_scan_reset() {
-    wphm_li_require_cap_or_die();
-    wphm_li_verify_nonce_or_die('wphm_link_scan_nonce', 'wphm_link_scan');
-    wphm_li_clear_state();
-    wp_safe_redirect(wphm_li_admin_url(['reset' => 1]));
-    exit;
-}
-
-/**
- * Build queue from sitemap (supports sitemapindex and urlset)
- */
-function wphm_li_build_queue_from_sitemap(string $sitemap_url, int $timeout = 8): array {
+/** =========================
+ * Sitemap queue
+ * ========================= */
+function wphm_li_build_queue_from_sitemap(string $sitemap_url, int $timeout = 8, int $max_queue = 20000): array {
     $sitemap_url = esc_url_raw($sitemap_url);
     if (!$sitemap_url) return [];
 
     $xml = wphm_li_fetch_body($sitemap_url, $timeout);
     if ($xml === '') return [];
 
-    $urls = wphm_li_parse_sitemap_xml($xml);
-    if (empty($urls)) return [];
-
-    // If it's sitemapindex -> urls are child sitemaps; gather all urlsets from them
     $is_index = wphm_li_sitemap_is_index($xml);
-    if ($is_index) {
-        $all = [];
-        foreach ($urls as $child) {
-            $child_xml = wphm_li_fetch_body($child, $timeout);
-            if ($child_xml === '') continue;
-            $child_urls = wphm_li_parse_sitemap_xml($child_xml);
-            foreach ($child_urls as $u) $all[] = $u;
-        }
-        $urls = $all;
+
+    if (!$is_index) {
+        $urls = wphm_li_parse_sitemap_xml($xml);
+        return wphm_li_normalize_urls($urls, $max_queue);
     }
 
-    // de-dup and keep only same-domain URLs (light safety)
-    $urls = array_values(array_unique(array_filter($urls, function($u){
-        return is_string($u) && $u !== '';
-    })));
+    // index: child sitemaps
+    $child_sitemaps = wphm_li_parse_sitemap_xml($xml);
+    $all = [];
 
-    return $urls;
+    foreach ($child_sitemaps as $child) {
+        if (count($all) >= $max_queue) break;
+
+        $child_xml = wphm_li_fetch_body((string)$child, $timeout);
+        if ($child_xml === '') continue;
+
+        $child_urls = wphm_li_parse_sitemap_xml($child_xml);
+        foreach ($child_urls as $u) {
+            $all[] = $u;
+            if (count($all) >= $max_queue) break;
+        }
+    }
+
+    return wphm_li_normalize_urls($all, $max_queue);
+}
+
+function wphm_li_normalize_urls(array $urls, int $max_queue): array {
+    $out = [];
+    $seen = [];
+
+    foreach ($urls as $u) {
+        if (!is_string($u)) continue;
+        $u = trim($u);
+        if ($u === '') continue;
+
+        if (isset($seen[$u])) continue;
+        $seen[$u] = 1;
+        $out[] = $u;
+
+        if (count($out) >= $max_queue) break;
+    }
+
+    return $out;
 }
 
 function wphm_li_fetch_body(string $url, int $timeout): string {
@@ -411,10 +407,9 @@ function wphm_li_sitemap_is_index(string $xml): bool {
 }
 
 function wphm_li_parse_sitemap_xml(string $xml): array {
-    // Avoid external entity loading
     $prev = libxml_use_internal_errors(true);
-    $dom = new DOMDocument();
-    $ok = $dom->loadXML($xml, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+    $dom  = new DOMDocument();
+    $ok   = $dom->loadXML($xml, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
     libxml_use_internal_errors($prev);
     if (!$ok) return [];
 
@@ -427,9 +422,9 @@ function wphm_li_parse_sitemap_xml(string $xml): array {
     return $out;
 }
 
-/**
- * Scan a post content for bad links
- */
+/** =========================
+ * Scan
+ * ========================= */
 function wphm_li_scan_post_for_bad_links(WP_Post $post, array $types, array $patterns, string $target_host, int $typo_threshold): array {
     $html = (string)$post->post_content;
     if ($html === '') return [];
@@ -437,26 +432,20 @@ function wphm_li_scan_post_for_bad_links(WP_Post $post, array $types, array $pat
     $links = wphm_li_extract_links_from_html($html, $types);
     if (empty($links)) return [];
 
-    $post_url = get_permalink($post->ID);
+    $post_url   = get_permalink($post->ID);
     $post_title = get_the_title($post->ID);
 
     $found = [];
 
     foreach ($links as $item) {
-        $u = $item['url'];
-        $type = $item['type'];
+        $u    = trim((string)($item['url'] ?? ''));
+        $type = (string)($item['type'] ?? '');
 
-        // normalize & skip empty
-        $u = trim((string)$u);
         if ($u === '') continue;
-
-        // Skip anchors, mailto, tel, javascript
         if (preg_match('~^(#|mailto:|tel:|javascript:)~i', $u)) continue;
 
-        // Make absolute if relative
         $abs = wphm_li_to_absolute_url($u, $post_url);
 
-        // 1) substring match
         $reason = '';
         foreach ($patterns as $p) {
             if ($p !== '' && stripos($abs, $p) !== false) {
@@ -465,12 +454,10 @@ function wphm_li_scan_post_for_bad_links(WP_Post $post, array $types, array $pat
             }
         }
 
-        // 2) typo host distance (only if no substring reason and host exists)
-        if ($reason === '' && $typo_threshold > 0) {
+        if ($reason === '' && $typo_threshold > 0 && $target_host !== '') {
             $host = wphm_li_get_host($abs);
             if ($host !== '') {
                 $dist = levenshtein(wphm_li_host_norm($host), wphm_li_host_norm($target_host));
-                // ignore correct host exactly
                 if ($dist > 0 && $dist <= $typo_threshold) {
                     $reason = 'typo疑い: host距離=' . $dist . ' (正:' . $target_host . ' / 検出:' . $host . ')';
                 }
@@ -493,12 +480,11 @@ function wphm_li_scan_post_for_bad_links(WP_Post $post, array $types, array $pat
 }
 
 function wphm_li_extract_links_from_html(string $html, array $types): array {
-    $out = [];
+    $out  = [];
 
     $prev = libxml_use_internal_errors(true);
     $dom = new DOMDocument();
 
-    // loadHTML needs a wrapper; keep it simple
     $wrapped = '<!doctype html><html><head><meta charset="utf-8"></head><body>' . $html . '</body></html>';
     $dom->loadHTML($wrapped, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
     libxml_clear_errors();
@@ -508,31 +494,30 @@ function wphm_li_extract_links_from_html(string $html, array $types): array {
 
     if (!empty($types['a'])) {
         foreach ($xpath->query('//a[@href]') as $n) {
-            $out[] = ['type' => 'a', 'url' => $n->getAttribute('href')];
+            if ($n instanceof DOMElement) $out[] = ['type' => 'a', 'url' => $n->getAttribute('href')];
         }
     }
     if (!empty($types['img'])) {
         foreach ($xpath->query('//img[@src]') as $n) {
-            $out[] = ['type' => 'img', 'url' => $n->getAttribute('src')];
+            if ($n instanceof DOMElement) $out[] = ['type' => 'img', 'url' => $n->getAttribute('src')];
         }
     }
     if (!empty($types['video'])) {
         foreach ($xpath->query('//video[@src]') as $n) {
-            $out[] = ['type' => 'video', 'url' => $n->getAttribute('src')];
+            if ($n instanceof DOMElement) $out[] = ['type' => 'video', 'url' => $n->getAttribute('src')];
         }
     }
     if (!empty($types['source'])) {
         foreach ($xpath->query('//source[@src]') as $n) {
-            $out[] = ['type' => 'source', 'url' => $n->getAttribute('src')];
+            if ($n instanceof DOMElement) $out[] = ['type' => 'source', 'url' => $n->getAttribute('src')];
         }
     }
 
-    // de-dup per type+url
     $seen = [];
     $uniq = [];
     foreach ($out as $row) {
-        $k = $row['type'] . '|' . $row['url'];
-        if (isset($seen[$k])) continue;
+        $k = ($row['type'] ?? '') . '|' . ($row['url'] ?? '');
+        if ($k === '|' || isset($seen[$k])) continue;
         $seen[$k] = 1;
         $uniq[] = $row;
     }
@@ -544,7 +529,7 @@ function wphm_li_patterns_from_text(string $text): array {
     $lines = preg_split("/\r\n|\n|\r/", (string)$text);
     $out = [];
     foreach ($lines as $l) {
-        $l = trim($l);
+        $l = trim((string)$l);
         if ($l === '') continue;
         $out[] = $l;
     }
@@ -567,31 +552,34 @@ function wphm_li_get_host(string $url): string {
 }
 
 function wphm_li_host_norm(string $host): string {
-    $h = strtolower(trim($host));
-    // normalize www.
+    $h = strtolower(trim((string)$host));
     if (strpos($h, 'www.') === 0) $h = substr($h, 4);
     return $h;
 }
 
 function wphm_li_to_absolute_url(string $maybe_url, string $base_url): string {
-    // Already absolute
+    // absolute
     if (preg_match('~^https?://~i', $maybe_url)) return $maybe_url;
 
-    // Protocol-relative //example.com/a
+    $base = wp_parse_url($base_url);
+    if (!is_array($base)) return $maybe_url;
+
+    $scheme = $base['scheme'] ?? 'https';
+    $host   = $base['host'] ?? '';
+    if ($host === '') return $maybe_url;
+
+    // protocol-relative
     if (strpos($maybe_url, '//') === 0) {
-        $scheme = wp_parse_url($base_url, PHP_URL_SCHEME) ?: 'https';
         return $scheme . ':' . $maybe_url;
     }
 
-    // Root-relative /a/b
+    // root-relative
     if (strpos($maybe_url, '/') === 0) {
-        $scheme = wp_parse_url($base_url, PHP_URL_SCHEME) ?: 'https';
-        $host   = wp_parse_url($base_url, PHP_URL_HOST) ?: '';
-        if ($host === '') return $maybe_url;
         return $scheme . '://' . $host . $maybe_url;
     }
 
-    // Relative a/b
-    $base = trailingslashit(dirname($base_url));
-    return $base . ltrim($maybe_url, '/');
+    // relative: join to base dir
+    $path = $base['path'] ?? '/';
+    $dir  = preg_replace('~/[^/]*$~', '/', $path); // dirname (url path)
+    return $scheme . '://' . $host . $dir . ltrim($maybe_url, '/');
 }
