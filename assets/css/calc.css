@@ -1,0 +1,111 @@
+/* ===== base ===== */
+.wphm-calc {
+  max-width: 420px;
+  border: 1px solid #dcdcde;
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+
+.wphm-calc:focus {
+  outline: 2px solid #2271b1;
+  outline-offset: 2px;
+}
+
+/* ===== display ===== */
+.wphm-calc-display {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 54px;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid #c3c4c7;
+  background: #1f1f1f;
+  color: #fff;
+
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: .5px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  margin-bottom: 12px;
+}
+
+/* 使ってないなら非表示でOK（将来拡張用） */
+.wphm-calc-extra {
+  display: none;
+}
+
+/* ===== keys grid ===== */
+.wphm-calc-keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+/* all buttons */
+.wphm-calc-keys button {
+  appearance: none;
+  border: 1px solid #c3c4c7;
+  background: #f6f7f7;
+  border-radius: 12px;
+  height: 44px;
+
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  transition: background .12s ease, transform .04s ease, filter .12s ease;
+}
+
+.wphm-calc-keys button:hover {
+  background: #f0f0f1;
+}
+
+.wphm-calc-keys button:active {
+  transform: translateY(1px);
+}
+
+.wphm-calc-keys button:focus {
+  outline: 2px solid rgba(34,113,177,.35);
+  outline-offset: 2px;
+}
+
+/* operator buttons */
+.wphm-calc-keys button[data-op] {
+  background: #ffffff;
+}
+
+/* AC */
+.wphm-calc-keys button[data-act="ac"] {
+  background: #fff;
+}
+
+/* equals */
+.wphm-calc-keys button[data-act="eq"],
+.wphm-calc-keys button.eq {
+  background: #2271b1;
+  border-color: #2271b1;
+  color: #fff;
+}
+
+.wphm-calc-keys button[data-act="eq"]:hover,
+.wphm-calc-keys button.eq:hover {
+  filter: brightness(.98);
+}
+
+/* 0 を横に広く */
+.wphm-calc-keys button.zero {
+  grid-column: span 2;
+}

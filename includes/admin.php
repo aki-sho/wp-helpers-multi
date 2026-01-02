@@ -59,7 +59,14 @@ function wphm_render_dashboard(): void {
 }
 
 function wphm_render_qr(): void   { wphm_wrap('QRコード', '（ここにQRコード作成ツールを実装します）'); }
-function wphm_render_calc(): void { wphm_wrap('電卓', '（ここに電卓ツールを実装します）'); }
+function wphm_render_calc(): void {
+    require_once __DIR__ . '/../tools/calc.php';
+    if (function_exists('wphm_render_calc_tool_page')) {
+        wphm_render_calc_tool_page();
+        return;
+    }
+    wphm_wrap('bcrypt', 'エラー: tools/bcrypt.php は読み込みましたが wphm_render_bcrypt_tool_page() がありません。');
+}
 
 function wphm_render_bcrypt(): void {
     require_once __DIR__ . '/../tools/bcrypt.php';
