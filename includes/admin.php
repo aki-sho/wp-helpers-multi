@@ -31,6 +31,7 @@ add_action('admin_menu', function () {
     add_submenu_page('wp-helpers-multi', 'bcrypt', 'bcrypt', 'manage_options', 'wphm-bcrypt', 'wphm_render_bcrypt');
     add_submenu_page('wp-helpers-multi', 'パスワード生成', 'パスワード生成', 'manage_options', 'wphm-password', 'wphm_render_password');
     add_submenu_page('wp-helpers-multi', 'タイマー', 'タイマー', 'manage_options', 'wphm-timer', 'wphm_render_timer');
+    add_submenu_page('wp-helpers-multi', 'リンク点検', 'リンク点検', 'manage_options', 'wphm-link-inspector', 'wphm_render_link_inspector');
 });
 
 function wphm_wrap($title, $desc = '') {
@@ -61,7 +62,10 @@ function wphm_render_timer() {
   require_once __DIR__ . '/../tools/timer.php';
   wphm_render_timer_tool_page();
 }
-
+function wphm_render_link_inspector() {
+  require_once __DIR__ . '/../tools/link_inspector.php';
+  wphm_render_link_inspector_tool_page();
+}
 
 // 管理画面の「admin-post.php」経由で投げられた POST を受け取るためのフック。
 // action=wphm_set_fontsize のリクエストが来たら、wphm_handle_set_fontsize() を実行する。
