@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Helpers Multi
  * Description: Utility tools plugin.
- * Version: 0.1.1
+ * Version: 0.2.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Your Name
