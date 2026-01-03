@@ -41,6 +41,7 @@ function wphm_register_admin_menu() {
     add_submenu_page('wp-helpers-multi', 'パスワード生成', 'パスワード生成', 'manage_options', 'wphm-password',      'wphm_render_password');
     add_submenu_page('wp-helpers-multi', 'タイマー',       'タイマー',       'manage_options', 'wphm-timer',         'wphm_render_timer');
     add_submenu_page('wp-helpers-multi', 'リンク点検',     'リンク点検',     'manage_options', 'wphm-link-inspector','wphm_render_link_inspector');
+    add_submenu_page('wp-helpers-multi', 'アクセスログ',   'アクセスログ',   'manage_options', 'wphm-access-log',    'wphm_render_access_log');
 }
 
 /* =========================
@@ -54,64 +55,82 @@ function wphm_wrap($title, $desc = ''): void {
     echo '</div>';
 }
 
+/* =========================
+ * Tool loader helper
+ * ========================= */
+function wphm_require_and_render_tool(string $path, string $title, string $render_fn): void {
+    if (!current_user_can('manage_options')) return;
+
+    if (!file_exists($path)) {
+        wphm_wrap($title, 'エラー: ' . basename($path) . ' が見つかりません。');
+        return;
+    }
+
+    require_once $path;
+
+    if (!function_exists($render_fn)) {
+        wphm_wrap($title, 'エラー: 読み込みましたが ' . $render_fn . '() がありません。');
+        return;
+    }
+
+    $render_fn();
+}
+/* =========================
+ * Pages
+ * ========================= */
 function wphm_render_dashboard(): void {
     wphm_wrap('WP Helpers Multi', 'ここにツールを追加していきます。左の子メニューから各ツールへ。');
 }
 
 function wphm_render_qr(): void   { wphm_wrap('QRコード', '（ここにQRコード作成ツールを実装します）'); }
+
 function wphm_render_calc(): void {
-    require_once __DIR__ . '/../tools/calc.php';
-    if (function_exists('wphm_render_calc_tool_page')) {
-        wphm_render_calc_tool_page();
-        return;
-    }
-    wphm_wrap('bcrypt', 'エラー: tools/bcrypt.php は読み込みましたが wphm_render_bcrypt_tool_page() がありません。');
+    wphm_require_and_render_tool(
+        __DIR__ . '/../tools/calc.php',
+        '電卓',
+        'wphm_render_calc_tool_page'
+    );
 }
 
 function wphm_render_bcrypt(): void {
-    require_once __DIR__ . '/../tools/bcrypt.php';
-    if (function_exists('wphm_render_bcrypt_tool_page')) {
-        wphm_render_bcrypt_tool_page();
-        return;
-    }
-    wphm_wrap('bcrypt', 'エラー: tools/bcrypt.php は読み込みましたが wphm_render_bcrypt_tool_page() がありません。');
+    wphm_require_and_render_tool(
+        __DIR__ . '/../tools/bcrypt.php',
+        'bcrypt',
+        'wphm_render_bcrypt_tool_page'
+    );
 }
 
 function wphm_render_password(): void {
-    require_once __DIR__ . '/../tools/password.php';
-    if (function_exists('wphm_render_password_tool_page')) {
-        wphm_render_password_tool_page();
-        return;
-    }
-    wphm_wrap('パスワード生成', 'エラー: tools/password.php は読み込みましたが wphm_render_password_tool_page() がありません。');
+    wphm_require_and_render_tool(
+        __DIR__ . '/../tools/password.php',
+        'パスワード生成',
+        'wphm_render_password_tool_page'
+    );
 }
 
 function wphm_render_timer(): void {
-    require_once __DIR__ . '/../tools/timer.php';
-    if (function_exists('wphm_render_timer_tool_page')) {
-        wphm_render_timer_tool_page();
-        return;
-    }
-    wphm_wrap('タイマー', 'エラー: tools/timer.php は読み込みましたが wphm_render_timer_tool_page() がありません。');
+    wphm_require_and_render_tool(
+        __DIR__ . '/../tools/timer.php',
+        'タイマー',
+        'wphm_render_timer_tool_page'
+    );
 }
 
 function wphm_render_link_inspector(): void {
-    if (!current_user_can('manage_options')) return;
+    wphm_require_and_render_tool(
+        __DIR__ . '/../tools/link_inspector.php',
+        'リンク点検',
+        'wphm_render_link_inspector_tool_page'
+    );
+}
 
-    $path = __DIR__ . '/../tools/link_inspector.php';
-
-    if (!file_exists($path)) {
-        wphm_wrap('リンク点検', 'エラー: tools/link_inspector.php が見つかりません。');
-        return;
-    }
-
-    require_once $path;
-    if (!function_exists('wphm_render_link_inspector_tool_page')) {
-        wphm_wrap('リンク点検', 'エラー: link_inspector.php を読み込みましたが wphm_render_link_inspector_tool_page() がありません。');
-        return;
-    }
-
-    wphm_render_link_inspector_tool_page();
+/* ★追加：アクセスログ（フォルダ構成版） */
+function wphm_render_access_log(): void {
+    wphm_require_and_render_tool(
+        __DIR__ . '/../tools/access_log/access_log.php',
+        'アクセスログ',
+        'wphm_render_access_log_tool_page'
+    );
 }
 
 /* =========================
