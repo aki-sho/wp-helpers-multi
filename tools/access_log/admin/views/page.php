@@ -112,9 +112,8 @@ if ($msg === 'truncated')echo '<div class="notice notice-success"><p>全ログ�
   </div>
 
   <?php require __DIR__ . '/parts/table.php'; ?>
-  <?php require __DIR__ . '/parts/document.php'; ?>
 </form>
-
+<?php require __DIR__ . '/parts/document.php'; ?>
 <?php
 // pagination
 if ($pages > 1) {
