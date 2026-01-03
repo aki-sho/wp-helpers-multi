@@ -82,8 +82,13 @@ function wphm_render_dashboard(): void {
     wphm_wrap('WP Helpers Multi', 'ここにツールを追加していきます。左の子メニューから各ツールへ。');
 }
 
-function wphm_render_qr(): void   { wphm_wrap('QRコード', '（ここにQRコード作成ツールを実装します）'); }
-
+function wphm_render_qr(): void {
+    wphm_require_and_render_tool(
+        __DIR__ . '/../tools/qr.php',
+        'QRコード',
+        'wphm_render_qr_tool_page'
+    );
+}
 function wphm_render_calc(): void {
     wphm_require_and_render_tool(
         __DIR__ . '/../tools/calc.php',
