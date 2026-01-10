@@ -35,6 +35,7 @@ function wphm_register_admin_menu() {
     );
 
     // 子メニュー：各ツール
+    //追加場所①
     add_submenu_page('wp-helpers-multi', 'QRコード',       'QRコード',       'manage_options', 'wphm-qr',            'wphm_render_qr');
     add_submenu_page('wp-helpers-multi', '電卓',           '電卓',           'manage_options', 'wphm-calc',          'wphm_render_calc');
     add_submenu_page('wp-helpers-multi', 'bcrypt',         'bcrypt',         'manage_options', 'wphm-bcrypt',        'wphm_render_bcrypt');
@@ -42,6 +43,7 @@ function wphm_register_admin_menu() {
     add_submenu_page('wp-helpers-multi', 'タイマー',       'タイマー',       'manage_options', 'wphm-timer',         'wphm_render_timer');
     add_submenu_page('wp-helpers-multi', 'リンク点検',     'リンク点検',     'manage_options', 'wphm-link-inspector','wphm_render_link_inspector');
     add_submenu_page('wp-helpers-multi', 'アクセスログ',   'アクセスログ',   'manage_options', 'wphm-access-log',    'wphm_render_access_log');
+    add_submenu_page('wp-helpers-multi', '投稿データ',     '投稿データ',     'manage_options', 'wphm-post-data-log', 'wphm_post_data_log');
 }
 
 /* =========================
@@ -129,12 +131,18 @@ function wphm_render_link_inspector(): void {
     );
 }
 
-/* ★追加：アクセスログ（フォルダ構成版） */
 function wphm_render_access_log(): void {
     wphm_require_and_render_tool(
         __DIR__ . '/../tools/access_log/access_log.php',
         'アクセスログ',
         'wphm_render_access_log_tool_page'
+    );
+}
+function wphm_post_data_log(): void {
+    wphm_require_and_render_tool(
+        __DIR__ . '/../tools/post_data/post_data.php',
+        '投稿データ',
+        'wphm_post_data_log_tool_page'
     );
 }
 
