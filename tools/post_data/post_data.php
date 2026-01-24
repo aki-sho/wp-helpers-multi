@@ -39,6 +39,12 @@ function fv_export_list_available_columns() {
     'cat_small' => 'カテゴリ（小）',
     'title'     => 'タイトル',
     'status'    => '公開状態',
+    'slug'      => 'スラッグ',
+    'meta_desc'  => 'メタディスクリプション',
+    'has_thumb'  => 'アイキャッチ',
+    'char_count' => '文字数',
+    'created_at' => '作成日',
+    'updated_at' => '更新日',
     //ここに追加キーと値は自分で決める
   ];
 }
@@ -139,6 +145,16 @@ function fv_export_list_get_rows() {
   foreach ($q->posts as $post_id) {
     $title = get_the_title($post_id);
     $status = get_post_status($post_id);
+    $slug   = (string) get_post_field('post_name', $post_id);
+    // ✅ 追加5項目（投稿ごとに一回だけ作る：カテゴリ複数でも同じ値を使い回す）
+    $meta_desc = (string) get_post_meta($post_id, 'the_page_meta_description', true); // Cocoon
+    $meta_desc = trim(wp_strip_all_tags($meta_desc));
+
+    $has_thumb  = has_post_thumbnail($post_id) ? 'あり' : 'なし';
+    $char_count = fv_export_list_calc_char_count($post_id);
+
+    $created_at = fv_export_list_format_datetime((string) get_post_field('post_date', $post_id));
+    $updated_at = fv_export_list_format_datetime((string) get_post_field('post_modified', $post_id));
 
     // WP標準カテゴリ
     $terms = wp_get_post_terms($post_id, 'category', ['orderby' => 'term_id', 'order' => 'ASC']);
@@ -150,21 +166,48 @@ function fv_export_list_get_rows() {
         'cat_big'   => '',
         'cat_small' => '',
         'title'     => $title,
-        'status' => fv_export_list_status_label($status),
-        //ここに追加
+        'status'    => fv_export_list_status_label($status),
+        'slug'      => $slug,
+        // ✅ 追加
+        'meta_desc'  => $meta_desc,
+        'has_thumb'  => $has_thumb,
+        'char_count' => $char_count,
+        'created_at' => $created_at,
+        'updated_at' => $updated_at,
       ];
       continue;
     }
 
+    // ★追加：この投稿に付いてるカテゴリIDをセット化
+    $term_ids = [];
+    foreach ($terms as $tt) {
+      $term_ids[(int)$tt->term_id] = true;
+    }
+
+    // ★追加：子が付いている親IDをマーク
+    $parents_with_child = [];
+    foreach ($terms as $tt) {
+      $p = (int)$tt->parent;
+      if ($p > 0 && isset($term_ids[$p])) {
+        $parents_with_child[$p] = true;
+      }
+    }
+
     foreach ($terms as $t) {
+
+      // ★ここが本体：子がある親は「親だけ行」を出さない（重複防止）
+      if ((int)$t->parent === 0 && isset($parents_with_child[(int)$t->term_id])) {
+        continue;
+      }
+
       $big = '';
       $small = '';
 
       if ((int)$t->parent === 0) {
-        // 親カテゴリ = 大
+        // 親カテゴリ = 大（子が無い親だけのときだけここに来る）
         $big = $t->name;
       } else {
-        // 子カテゴリ = 小（親を大として取る）
+        // 子カテゴリ = 小（親を大として取る）→ これで「親も子も同じ行」に出る
         $small = $t->name;
         $parent = get_term((int)$t->parent, 'category');
         if (!is_wp_error($parent) && $parent) {
@@ -172,19 +215,48 @@ function fv_export_list_get_rows() {
         }
       }
 
+      // カテゴリあり
       $rows[] = [
         'id'        => (string)$post_id,
         'cat_big'   => $big,
         'cat_small' => $small,
         'title'     => $title,
-        'status' => fv_export_list_status_label($status),
-        //ここに追加
+        'status'    => fv_export_list_status_label($status),
+        'slug'      => $slug,
+        // ✅ 追加
+        'meta_desc'  => $meta_desc,
+        'has_thumb'  => $has_thumb,
+        'char_count' => $char_count,
+        'created_at' => $created_at,
+        'updated_at' => $updated_at,
       ];
     }
   }
 
   wp_reset_postdata();
   return $rows;
+}
+
+// ✅ 文字数：本文からタグ/ショートコード除去 → 空白類を除外してカウント
+function fv_export_list_calc_char_count($post_id) {
+  $content = (string) get_post_field('post_content', $post_id);
+  $content = strip_shortcodes($content);
+  $content = wp_strip_all_tags($content);
+  $content = html_entity_decode($content, ENT_QUOTES, 'UTF-8');
+  $content = preg_replace('/\s+/u', '', $content); // 空白・改行など除外
+
+  if (function_exists('mb_strlen')) {
+    return (string) mb_strlen($content, 'UTF-8');
+  }
+  return (string) strlen($content);
+}
+
+// ✅ 日付：見やすく（WPのタイムゾーン反映）
+function fv_export_list_format_datetime($mysql_datetime) {
+  if (!$mysql_datetime) return '';
+  $ts = strtotime($mysql_datetime);
+  if (!$ts) return '';
+  return wp_date('Y-m-d H:i', $ts);
 }
 
 function fv_export_list_render_page() {
