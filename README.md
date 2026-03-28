@@ -46,20 +46,6 @@
 
 ---
 
-## スクリーンショット
-> あとで追加でOK（2枚でも一気に見栄えが上がります）
-
-- `assets/screenshot-1.png`：ダッシュボード / ツール一覧
-- `assets/screenshot-2.png`：QRコード生成画面
-
-（例：配置イメージ）
-
-    assets/
-      screenshot-1.png
-      screenshot-2.png
-
----
-
 ## 動作環境
 - WordPress：6.x+（目安）
 - PHP：8.0+（目安）
