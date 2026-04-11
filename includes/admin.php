@@ -44,6 +44,7 @@ function wphm_register_admin_menu() {
     add_submenu_page('wp-helpers-multi', 'リンク点検',     'リンク点検',     'manage_options', 'wphm-link-inspector','wphm_render_link_inspector');
     add_submenu_page('wp-helpers-multi', 'アクセスログ',   'アクセスログ',   'manage_options', 'wphm-access-log',    'wphm_render_access_log');
     add_submenu_page('wp-helpers-multi', '投稿データ',     '投稿データ',     'manage_options', 'wphm-post-data-log', 'wphm_post_data_log');
+    add_submenu_page('wp-helpers-multi', 'コメント管理',   'コメント管理',   'manage_options', 'wphm-comment-manager', 'wphm_render_comment_manager');
 }
 
 /* =========================
@@ -143,6 +144,14 @@ function wphm_post_data_log(): void {
         __DIR__ . '/../tools/post_data/post_data.php',
         '投稿データ',
         'wphm_post_data_log_tool_page'
+    );
+}
+
+function wphm_render_comment_manager(): void {
+    wphm_require_and_render_tool(
+        __DIR__ . '/../tools/comment_manager/comment_manager.php',
+        'コメント管理',
+        'wphm_render_comment_manager_tool_page'
     );
 }
 
