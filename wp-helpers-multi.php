@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Helpers Multi
  * Description: Utility tools plugin.
- * Version: 0.4.0
+ * Version: 0.5.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Your Name
@@ -20,7 +20,7 @@ add_filter('site_transient_update_plugins', function ($transient) {
     if (!is_object($transient)) return $transient;
 
     $plugin_file = plugin_basename(__FILE__);
-    $current_ver = '0.4.0'; // ←この値はプラグインヘッダーVersionと合わせる
+    $current_ver = '0.5.0'; // ←この値はプラグインヘッダーVersionと合わせる
 
     $url = 'https://plugin.pretty-cute.info/wp-helpers-multi/update.json';
     $res = wp_remote_get($url, ['timeout' => 8]);
