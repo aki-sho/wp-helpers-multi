@@ -7,7 +7,7 @@ if (!defined('ABSPATH')) exit;
  * - admin: render page / export / delete
  */
 
-define('WPHM_ACCESS_LOG_DB_VERSION', '1.0.0');
+define('WPHM_ACCESS_LOG_DB_VERSION', '1.1.0');
 
 require_once __DIR__ . '/schema/table.php';
 require_once __DIR__ . '/app/repository.php';

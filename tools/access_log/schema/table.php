@@ -27,7 +27,8 @@ function wphm_access_log_schema_ensure(): void {
         PRIMARY KEY  (id),
         KEY created_at (created_at),
         KEY ip (ip),
-        KEY user_id (user_id)
+        KEY user_id (user_id),
+        KEY path (path(191))
     ) {$charset};";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
