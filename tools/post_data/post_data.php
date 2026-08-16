@@ -435,8 +435,12 @@ function fv_export_list_render_page() {
   ], admin_url('admin-post.php'));
   $download_url = wp_nonce_url($download_url, 'fv_export_list_download');
 
-  echo '<div class="wrap">';
-  echo '<h1>データ出力</h1>';
+  echo '<div class="wrap wphm-app">';
+  if (function_exists('wphm_render_header')) {
+    wphm_render_header('投稿データ');
+  } else {
+    echo '<h1>投稿データ</h1>';
+  }
 
   // カテゴリ絞り込み（通常の投稿一覧と同じ階層付きドロップダウン）
   echo '<form method="get">';

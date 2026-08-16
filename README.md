@@ -14,8 +14,9 @@
 
 ## 概要
 **WP Helpers Multi** は、WordPress運用で「ちょっと欲しい」を集めたユーティリティ集です。  
-最初のバージョンでは、以下の機能を同梱しています。
+現在、以下の機能を同梱しています。
 
+- サイト運営者向けリンク集
 - QRコード生成
 - 電卓
 - bcrypt ヘルパー
@@ -30,14 +31,18 @@
 
 ---
 
-## 特徴（v0.1）
+## 特徴（v0.8）
 - ✅ 管理画面にツールを集約（“使いたい時にすぐ”）
+- ✅ ダッシュボードから機能ごとに有効・無効を切り替え
+- ✅ 無効な機能は左メニューと不要な処理を読み込まない
+- ✅ サイト運営でよく使うサービスを工程・カテゴリ別に整理
+- ✅ 共通のモダンな管理画面デザイン
 - ✅ 小さく始めて拡張しやすい（ツール追加の土台）
-- ✅ ZIP配布 & 自動更新の2パターン（学習用途に最適）
 
 ---
 
-## 機能一覧（v0.1）
+## 機能一覧（v0.8）
+- ✅ **サイトリンク**：構築・制作・運用・収益化で使うサービスへのカテゴリ別リンク集
 - ✅ **QRコード生成**：テキスト/URL からQRを作成
 - ✅ **電卓**：軽い計算を即実行
 - ✅ **bcrypt**：ハッシュ生成・検証（開発/確認用）
@@ -100,7 +105,8 @@
 
 ## 使い方
 インストール後、WordPress 管理画面に **WP Helpers Multi** のメニューが追加されます。  
-各ツールはその画面から実行できます。
+ダッシュボードで使用する機能をオンにすると、左メニューから各ツールを実行できます。
+初期状態ではすべての機能が有効です。
 
 ---
 
@@ -112,7 +118,9 @@
 ---
 
 ## ロードマップ（予定）
-- [ ] UI整理（共通デザイン / ナビ改善）
+- [x] UI整理（共通デザイン / ナビ改善）
+- [x] 機能ごとの有効・無効設定
+- [x] サイト運営者向けリンク集
 - [ ] リンク点検の詳細化（リダイレクト / タイムアウト / レポート出力）
 - [ ] ツール追加（必要になったら順次）
 
@@ -130,4 +138,4 @@ GPL-2.0-or-later
 
 ## English (Short)
 **WP Helpers Multi** adds a small toolbox of admin utilities to WordPress.  
-Initial features: QR code generator, calculator, bcrypt helper, password generator, timer, link checker, and access log viewer.
+Features include curated operator links, per-tool enable/disable settings, QR code generator, calculator, bcrypt helper, password generator, timer, link checker, access logs, post data, and comment management.
