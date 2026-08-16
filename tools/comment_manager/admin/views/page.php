@@ -77,6 +77,13 @@ if ($msg === 'updated') {
     white-space:pre-wrap;
     word-break:break-word;
 }
+.wphm-comment-ip-blocked {
+    color:#b32d2e;
+    font-weight:700;
+}
+.wphm-comment-ip-allowed {
+    color:#2271b1;
+}
 </style>
 
 <div class="wphm-comment-filter-links">
@@ -148,7 +155,7 @@ foreach ($status_options as $key => $label) {
     <div class="wphm-comment-bulk">
         <button class="button" type="submit" name="wphm_comment_manager_action" value="approve">選択承認</button>
         <button class="button" type="submit" name="wphm_comment_manager_action" value="unapprove">選択承認待ち</button>
-        <button class="button" type="submit" name="wphm_comment_manager_action" value="spam" onclick="return confirm('選択したコメントをスパムにします。よろしいですか？');">選択スパム</button>
+        <button class="button" type="submit" name="wphm_comment_manager_action" value="spam" onclick="return confirm('選択したコメントをスパムにし、そのIPアドレスを拒否します。よろしいですか？');">選択スパム＋IP拒否</button>
         <button class="button" type="submit" name="wphm_comment_manager_action" value="trash" onclick="return confirm('選択したコメントをゴミ箱に移動します。よろしいですか？');">選択ゴミ箱</button>
         <button class="button wphm-comment-danger" type="submit" name="wphm_comment_manager_action" value="delete" onclick="return confirm('選択したコメントを完全削除します。よろしいですか？');">選択完全削除</button>
     </div>

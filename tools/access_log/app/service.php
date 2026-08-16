@@ -55,7 +55,9 @@ function wphm_access_log_build_row(): ?array {
     $parts = wp_parse_url($url);
     $path = (string)($parts['path'] ?? '/');
 
-    $status = 200; // template_redirect 時点では確定しづらいので、まず 200 として保存（必要なら改修）
+    $status = function_exists('wphm_ip_blocklist_is_blocked') && wphm_ip_blocklist_is_blocked($ip)
+        ? 403
+        : 200;
     $user_id = get_current_user_id();
 
     return [

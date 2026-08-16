@@ -26,6 +26,9 @@ if (function_exists('wphm_render_header')) {
 if ($msg === 'deleted')  echo '<div class="notice notice-success"><p>選択したログを削除しました。</p></div>';
 if ($msg === 'purged')   echo '<div class="notice notice-success"><p>古いログを削除しました。</p></div>';
 if ($msg === 'truncated')echo '<div class="notice notice-success"><p>全ログを削除しました。</p></div>';
+if ($msg === 'ip_blocked') echo '<div class="notice notice-success"><p>IPアドレスを拒否リストへ登録しました。</p></div>';
+if ($msg === 'ip_unblocked') echo '<div class="notice notice-success"><p>IPアドレスの拒否を解除しました。</p></div>';
+if ($msg === 'ip_invalid') echo '<div class="notice notice-error"><p>IPアドレスを処理できませんでした。</p></div>';
 
 ?>
 
@@ -35,6 +38,9 @@ if ($msg === 'truncated')echo '<div class="notice notice-success"><p>全ログ�
 .wphm-accesslog-actions .field { display:flex; flex-direction:column; gap:4px; }
 .wphm-accesslog-actions input[type="text"], .wphm-accesslog-actions input[type="date"] { min-width: 220px; }
 .wphm-accesslog-danger { color:#b32d2e; }
+.wphm-accesslog-blocked { color:#b32d2e; font-weight:700; }
+.wphm-accesslog-allowed { color:#2271b1; }
+.wphm-accesslog-ip-action { margin-top:6px; }
 </style>
 
 <form method="get" action="<?php echo esc_url(admin_url('admin.php')); ?>">

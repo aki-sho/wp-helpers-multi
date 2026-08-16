@@ -1,5 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
+
+$blocked_ips = $data['blocked_ips'] ?? [];
 ?>
 
 <table class="widefat fixed striped">
@@ -11,6 +13,8 @@ if (!defined('ABSPATH')) exit;
             <th style="width:70px;">ID</th>
             <th style="width:180px;">投稿</th>
             <th style="width:180px;">投稿者</th>
+            <th style="width:140px;">IPアドレス</th>
+            <th style="width:100px;">IP拒否</th>
             <th>コメント</th>
             <th style="width:110px;">状態</th>
             <th style="width:160px;">日時</th>
@@ -19,7 +23,7 @@ if (!defined('ABSPATH')) exit;
     <tbody>
         <?php if (empty($items)): ?>
             <tr>
-                <td colspan="7">コメントがありません。</td>
+                <td colspan="9">コメントがありません。</td>
             </tr>
         <?php else: ?>
             <?php foreach ($items as $comment): ?>
@@ -29,6 +33,13 @@ if (!defined('ABSPATH')) exit;
                 $post_title = get_the_title($post_id);
                 $author = $comment->comment_author ?: '名前なし';
                 $email = $comment->comment_author_email ?: '';
+                $comment_ip = function_exists('wphm_ip_blocklist_normalize_ip')
+                    ? wphm_ip_blocklist_normalize_ip((string)$comment->comment_author_IP)
+                    : trim((string)$comment->comment_author_IP);
+                $ip_blocked = $comment_ip !== '' && isset($blocked_ips[$comment_ip]);
+                $access_log_url = $comment_ip !== '' && function_exists('wphm_access_log_admin_url')
+                    ? wphm_access_log_admin_url(['ip' => $comment_ip])
+                    : '';
                 $status_raw = wp_get_comment_status($comment);
                 $status_label = wphm_comment_manager_get_status_label((string)$status_raw);
                 $content = wphm_comment_manager_excerpt((string)$comment->comment_content, 120);
@@ -54,6 +65,20 @@ if (!defined('ABSPATH')) exit;
                         <div><?php echo esc_html($author); ?></div>
                         <?php if ($email !== ''): ?>
                             <div class="wphm-comment-meta"><?php echo esc_html($email); ?></div>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if ($access_log_url !== ''): ?>
+                            <a href="<?php echo esc_url($access_log_url); ?>"><?php echo esc_html($comment_ip); ?></a>
+                        <?php else: ?>
+                            —
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if ($ip_blocked): ?>
+                            <span class="wphm-comment-ip-blocked">拒否中</span>
+                        <?php else: ?>
+                            <span class="wphm-comment-ip-allowed">未拒否</span>
                         <?php endif; ?>
                     </td>
                     <td>

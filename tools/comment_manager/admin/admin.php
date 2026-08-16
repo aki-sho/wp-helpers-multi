@@ -53,6 +53,14 @@ function wphm_render_comment_manager_tool_page(): void {
         'per_page' => 20,
     ]);
 
+    $comment_ips = [];
+    foreach ($result['items'] as $comment) {
+        $comment_ips[] = (string)($comment->comment_author_IP ?? '');
+    }
+    $blocked_ips = function_exists('wphm_ip_blocklist_get_entries')
+        ? wphm_ip_blocklist_get_entries($comment_ips)
+        : [];
+
     $data = [
         'status' => $status,
         'search' => $search,
@@ -62,6 +70,7 @@ function wphm_render_comment_manager_tool_page(): void {
         'done' => isset($_GET['done']) ? (int)$_GET['done'] : 0,
         'counts' => wphm_comment_manager_get_counts(),
         'status_options' => wphm_comment_manager_get_status_options(),
+        'blocked_ips' => $blocked_ips,
     ];
 
     require __DIR__ . '/views/page.php';

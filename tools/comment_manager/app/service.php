@@ -141,7 +141,8 @@ function wphm_comment_manager_apply_bulk_action(string $action, array $ids): int
         $comment_id = (int) $id;
         if ($comment_id <= 0) continue;
 
-        if (!get_comment($comment_id)) continue;
+        $comment = get_comment($comment_id);
+        if (!$comment) continue;
 
         switch ($action) {
             case 'approve':
@@ -158,6 +159,10 @@ function wphm_comment_manager_apply_bulk_action(string $action, array $ids): int
 
             case 'spam':
                 if (wp_spam_comment($comment_id)) {
+                    $comment_ip = (string)($comment->comment_author_IP ?? '');
+                    if (function_exists('wphm_ip_blocklist_block')) {
+                        wphm_ip_blocklist_block($comment_ip, 'comment_spam', $comment_id);
+                    }
                     $done++;
                 }
                 break;

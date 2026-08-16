@@ -13,6 +13,8 @@ if (!defined('ABSPATH')) exit;
     <li><strong>記録対象</strong>：フロント（管理画面以外）のアクセスが自動で記録されます。</li>
     <li><strong>絞り込み</strong>：上部の「検索」「IP」「From/To」で条件を指定して「絞り込み」を押します。</li>
     <li><strong>CSV出力</strong>：現在の絞り込み条件のまま最大200件をCSVでダウンロードします。</li>
+    <li><strong>IP拒否</strong>：IPアドレス単位でフロント閲覧とコメント投稿を拒否・解除します。</li>
+    <li><strong>相互確認</strong>：同じIPのスパムコメント件数と、共通拒否状態を確認できます。</li>
     <li><strong>選択削除</strong>：チェックを付けて「選択削除」を押します。</li>
     <li><strong>古いログ削除</strong>：指定日数より前のログを削除します（例：30日）。</li>
     <li><strong>全削除</strong>：すべてのログを削除します（取り消し不可）。</li>
@@ -25,6 +27,8 @@ if (!defined('ABSPATH')) exit;
     <li><strong>Method</strong>：HTTPメソッド（GET/POST など）です。</li>
     <li><strong>Status</strong>：HTTPステータスコードです（現在は基本 200 として記録）。</li>
     <li><strong>IP</strong>：アクセス元IPアドレスです。</li>
+    <li><strong>IP拒否</strong>：共通拒否リストの状態です。変更はコメント管理にも即時反映されます。</li>
+    <li><strong>スパムコメント</strong>：同じIPアドレスでスパム状態になっているコメント件数です。</li>
     <li><strong>User</strong>：ログイン中ユーザーIDです（未ログインは 0）。</li>
     <li><strong>URL</strong>：アクセスされた完全なURLです。</li>
     <li><strong>Referrer</strong>：参照元URLです（無い場合は空）。</li>
@@ -35,6 +39,7 @@ if (!defined('ABSPATH')) exit;
 
   <p style="margin:0;">
     <strong>メモ：</strong>
+    IP拒否は同じIPを利用するすべての訪問者に影響します。共有回線・動的IP・プロキシ環境では誤拒否に注意してください。
     IP取得は環境により異なります（Cloudflare/ALB等）。必要なら <code>wphm_access_log_ip</code> フィルタで上書きしてください。
   </p>
 </div>
