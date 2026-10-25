@@ -111,13 +111,14 @@ try {
     wphm_sr_unlock($post_id); $other->close();
     wphm_register_admin_menu();
     $menu = array_filter($submenu['wp-helpers-multi'], function ($item) { return $item[2] === 'wphm-search-replace'; });
-    integration_same(1, count($menu), 'admin submenu registered');
+    integration_same(0, count($menu), 'separate search submenu is removed');
     $_GET['page'] = 'wphm-search-replace';
     wphm_sr_enqueue_assets();
     integration_same(true, wp_script_is('wphm-search-replace', 'enqueued'), 'page script enqueued');
     integration_same(['wphm-admin-modern'], wp_styles()->registered['wphm-search-replace']->deps, 'shared styling reused');
     ob_start(); wphm_render_search_replace_tool_page(); $html = ob_get_clean();
-    integration_same(true, strpos($html, 'id="wphm-sr-apply"') !== false, 'real WordPress page renders');
+    integration_same(true, strpos($html, 'id="wphm-search-replace-history"') !== false, 'legacy history page remains available');
+    integration_same(false, strpos($html, 'id="wphm-sr-apply"') !== false, 'legacy bulk replacement UI is removed');
     echo "PASS: {$checks} WordPress 7.0 / MariaDB integration assertions.\n";
 } finally {
     if (isset($wpdb)) $wpdb->close();

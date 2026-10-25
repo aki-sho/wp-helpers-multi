@@ -112,13 +112,14 @@ function wphm_get_tool_definitions(): array {
         ],
         'search_replace' => [
             'label'       => '記事検索・置換',
-            'description' => '投稿・固定ページの文章を検索し、差分を確認して置換・復元します。',
+            'description' => '投稿・固定ページの編集画面内で、編集中の本文を検索・置換します。',
             'icon'        => 'dashicons-search',
             'group'       => 'content',
             'menu_title'  => '記事検索・置換',
             'page_title'  => '記事検索・置換',
             'slug'        => 'wphm-search-replace',
             'callback'    => 'wphm_render_search_replace',
+            'editor_tool' => true,
             'default'     => true,
         ],
         'comment_manager' => [

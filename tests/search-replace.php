@@ -218,7 +218,7 @@ function ajax($payload) {
     try { wphm_sr_ajax(); } catch (AjaxResponse $response) { return $response; }
     throw new Exception('AJAX failed to respond');
 }
-reset_fixture(); same(200, ajax(['op' => 'start', 'settings' => ['search' => '旧名称']])->status, 'AJAX valid start');
+reset_fixture(); same(400, ajax(['op' => 'start', 'settings' => ['search' => '旧名称']])->status, 'legacy bulk search is retired in favor of editor integration');
 $GLOBALS['test_can'] = false; same(403, ajax(['op' => 'start', 'settings' => ['search' => 'x']])->status, 'AJAX admin capability');
 reset_fixture(); $GLOBALS['test_enabled'] = false; same(403, ajax(['op' => 'start', 'settings' => ['search' => 'x']])->status, 'AJAX feature switch');
 reset_fixture(); $GLOBALS['test_nonce'] = false; same(403, ajax(['op' => 'start', 'settings' => ['search' => 'x']])->status, 'AJAX nonce');

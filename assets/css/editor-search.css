@@ -1,0 +1,26 @@
+.wphm-editor-search { position: fixed; top: 100px; right: 24px; z-index: 9990; color: #1e1e1e; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.wphm-editor-search *, .wphm-editor-search *::before, .wphm-editor-search *::after { box-sizing: border-box; }
+.wphm-editor-search button { cursor: pointer; font: inherit; min-height: 32px; border: 1px solid #8c8f94; border-radius: 3px; padding: 5px 10px; background: #fff; color: #1e1e1e; }
+.wphm-editor-search button:hover { background: #f0f6fc; border-color: #2271b1; }
+.wphm-editor-search button:focus-visible, .wphm-editor-search textarea:focus-visible, .wphm-editor-search input:focus-visible { outline: 2px solid #2271b1; outline-offset: 2px; }
+.wphm-editor-search button:disabled { cursor: default; opacity: .45; }
+.wphm-editor-search .wphm-es-launch { border-color: #2271b1; color: #135e96; box-shadow: 0 2px 8px #0002; }
+.wphm-es-panel { width: 360px; max-width: calc(100vw - 32px); padding: 16px; border: 1px solid #8c8f94; border-top: 3px solid #2271b1; border-radius: 5px; background: #fff; box-shadow: 0 6px 24px #0003; max-height: calc(100vh - 130px); overflow-y: auto; }
+.wphm-editor-search [hidden] { display: none !important; }
+.wphm-es-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.wphm-es-heading strong { font-size: 15px; }
+.wphm-es-heading button { border: 0; font-size: 20px; padding: 0 7px; }
+.wphm-es-label { display: block; font-weight: 600; margin-top: 10px; }
+.wphm-es-label textarea { display: block; width: 100%; min-height: 38px; max-height: 120px; margin: 4px 0 0; resize: vertical; font: inherit; border: 1px solid #8c8f94; border-radius: 3px; padding: 6px 8px; background: #fff; color: #1e1e1e; }
+.wphm-es-case { display: flex; gap: 7px; align-items: center; margin-top: 10px; font-weight: normal; }
+.wphm-es-case input { margin: 0; }
+.wphm-es-navigation, .wphm-es-actions { display: flex; align-items: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.wphm-es-count { margin-right: auto; }
+.wphm-es-actions button:first-child { background: #2271b1; border-color: #2271b1; color: #fff; }
+.wphm-es-context { padding: 9px; background: #f6f7f7; border-radius: 3px; overflow-wrap: anywhere; max-height: 130px; overflow-y: auto; white-space: pre-wrap; margin: 12px 0 0; }
+.wphm-es-context mark { background: #ffde59; color: #1e1e1e; }
+.wphm-es-note, .wphm-es-message { margin: 10px 0 0; font-size: 12px; }
+.wphm-es-note { color: #50575e; }
+.wphm-es-message { color: #135e96; }
+.wphm-es-omitted { margin-top: 10px; font-size: 12px; color: #50575e; }
+@media (max-width: 782px) { .wphm-editor-search { top: 104px; right: 12px; } .wphm-es-panel { width: 340px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 130px); } }

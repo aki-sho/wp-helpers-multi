@@ -14,17 +14,9 @@ function wphm_sr_ajax(): void {
     }
     switch ($input['op']) {
         case 'start':
-            $settings = $input['settings'] ?? null;
-            if (!is_array($settings)) wp_send_json_error(['message' => '検索条件が不正です。'], 400);
-            foreach ($settings as $value) if (!is_scalar($value) && $value !== null) wp_send_json_error(['message' => '検索条件が不正です。'], 400);
-            $result = wphm_sr_start($settings);
-            break;
         case 'search':
-            $result = wphm_sr_search((string) ($input['token'] ?? ''));
-            break;
         case 'apply':
-            $selected = $input['selected'] ?? null;
-            $result = is_array($selected) ? wphm_sr_apply((string) ($input['token'] ?? ''), absint($input['post_id'] ?? 0), $selected) : new WP_Error('selection', '置換箇所を選択してください。');
+            $result = new WP_Error('editor_only', '検索・置換は投稿・固定ページの編集画面内で実行してください。');
             break;
         case 'history':
             $result = wphm_sr_history_list(max(1, min(100000, absint($input['page'] ?? 1))));

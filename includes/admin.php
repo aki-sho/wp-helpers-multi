@@ -36,6 +36,11 @@ function wphm_register_admin_menu(): void {
         if (!wphm_is_tool_enabled((string) $id)) {
             continue;
         }
+        if (!empty($tool['editor_tool'])) {
+            // Keep the old URL for existing history, without a separate search menu.
+            add_submenu_page(null, '過去の置換履歴', '過去の置換履歴', 'manage_options', (string) $tool['slug'], (string) $tool['callback']);
+            continue;
+        }
 
         $hook = add_submenu_page(
             'wp-helpers-multi',
