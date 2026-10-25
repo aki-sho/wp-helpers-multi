@@ -27,13 +27,13 @@ function wphm_validate_update_metadata($data): ?array {
     return $clean;
 }
 
-/** Cache successful checks for six hours and failed checks for ten minutes. */
-function wphm_get_update_metadata(): ?array {
+/** Normal checks use cache; an explicit administrator check always fetches again. */
+function wphm_get_update_metadata(bool $force = false): ?array {
     $cached = get_site_transient('wphm_update_metadata_v1');
-    if (is_array($cached) && array_key_exists('data', $cached)) return wphm_validate_update_metadata($cached['data']);
+    if (!$force && is_array($cached) && array_key_exists('data', $cached)) return wphm_validate_update_metadata($cached['data']);
     $response = wp_safe_remote_get(WPHM_UPDATE_JSON_URL, [
         'timeout' => 5, 'redirection' => 3, 'limit_response_size' => 262144,
-        'headers' => ['Accept' => 'application/json'],
+        'headers' => $force ? ['Accept' => 'application/json', 'Cache-Control' => 'no-cache'] : ['Accept' => 'application/json'],
     ]);
     $data = null;
     if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
@@ -41,12 +41,70 @@ function wphm_get_update_metadata(): ?array {
     }
     if ($data !== null) {
         set_site_transient('wphm_update_last_good_v1', $data, 7 * DAY_IN_SECONDS);
-        set_site_transient('wphm_update_metadata_v1', ['data' => $data], 6 * HOUR_IN_SECONDS);
+        set_site_transient('wphm_update_metadata_v1', ['data' => $data, 'fresh' => true], 6 * HOUR_IN_SECONDS);
         return $data;
     }
     $fallback = wphm_validate_update_metadata(get_site_transient('wphm_update_last_good_v1'));
-    set_site_transient('wphm_update_metadata_v1', ['data' => $fallback], 10 * MINUTE_IN_SECONDS);
+    set_site_transient('wphm_update_metadata_v1', ['data' => $fallback, 'fresh' => false], 10 * MINUTE_IN_SECONDS);
     return $fallback;
+}
+
+// WordPress's built-in "Check again" must also refresh this self-hosted updater.
+add_action('load-update-core.php', 'wphm_recheck_updates_on_core_screen');
+function wphm_recheck_updates_on_core_screen(): void {
+    if (!current_user_can('update_plugins') || !isset($_GET['force-check']) || !is_scalar($_GET['force-check']) || (string) $_GET['force-check'] !== '1') return;
+    wphm_get_update_metadata(true);
+}
+
+add_filter('plugin_action_links_' . plugin_basename(WPHM_PLUGIN_FILE), 'wphm_update_check_action_link');
+add_filter('network_admin_plugin_action_links_' . plugin_basename(WPHM_PLUGIN_FILE), 'wphm_update_check_action_link');
+function wphm_update_check_action_link(array $links): array {
+    if (!current_user_can('update_plugins')) return $links;
+    $url = admin_url('admin-post.php?action=wphm_check_updates');
+    if (is_network_admin()) $url = add_query_arg('wphm-network', '1', $url);
+    $url = wp_nonce_url($url, 'wphm_check_updates');
+    $links['wphm_check_updates'] = '<a href="' . esc_url($url) . '">更新を確認</a>';
+    return $links;
+}
+
+/** Refresh only our metadata and record a per-user result, without clearing other plugins' caches. */
+function wphm_check_updates_now(): array {
+    $data = wphm_get_update_metadata(true);
+    $cached = get_site_transient('wphm_update_metadata_v1');
+    return ['fresh' => !empty($cached['fresh']), 'version' => $data['version'] ?? ''];
+}
+
+add_action('admin_post_wphm_check_updates', 'wphm_handle_update_check');
+function wphm_handle_update_check(): void {
+    if (!current_user_can('update_plugins')) wp_die('更新を確認する権限がありません。', '', ['response' => 403]);
+    check_admin_referer('wphm_check_updates');
+    set_transient('wphm_update_check_' . get_current_user_id(), wphm_check_updates_now(), 5 * MINUTE_IN_SECONDS);
+    $network = is_multisite() && current_user_can('manage_network_plugins') && isset($_GET['wphm-network']) && is_scalar($_GET['wphm-network']) && (string) $_GET['wphm-network'] === '1';
+    $url = $network ? network_admin_url('plugins.php') : self_admin_url('plugins.php');
+    wp_safe_redirect(add_query_arg('wphm-update-checked', '1', $url));
+    exit;
+}
+
+/** Plain text status: a failed request with old fallback data is never announced as a fresh check. */
+function wphm_update_check_message(array $result): string {
+    if (empty($result['fresh'])) return empty($result['version'])
+        ? '最新の更新情報を取得できませんでした。時間を置いて「更新を確認」を押してください。'
+        : '最新の更新情報を取得できなかったため、以前取得した情報を表示しています。時間を置いて「更新を確認」を押してください。';
+    $version = $result['version'] ?? '';
+    if (version_compare(WPHM_VERSION, $version, '<')) return '配布サーバーを再確認しました。v' . $version . 'への更新があります。プラグイン一覧から更新してください。';
+    return '配布サーバーを再確認しました。配布版はv' . $version . '、インストール済みはv' . WPHM_VERSION . 'です。利用可能な更新はありません。';
+}
+
+add_action('admin_notices', 'wphm_update_check_notice');
+add_action('network_admin_notices', 'wphm_update_check_notice');
+function wphm_update_check_notice(): void {
+    global $pagenow;
+    if ($pagenow !== 'plugins.php' || !isset($_GET['wphm-update-checked']) || !current_user_can('update_plugins')) return;
+    $key = 'wphm_update_check_' . get_current_user_id();
+    $result = get_transient($key);
+    if (!is_array($result)) return;
+    delete_transient($key);
+    echo '<div class="notice ' . (!empty($result['fresh']) ? 'notice-success' : 'notice-warning') . '"><p>' . esc_html(wphm_update_check_message($result)) . '</p></div>';
 }
 
 function wphm_update_item(array $data): array {

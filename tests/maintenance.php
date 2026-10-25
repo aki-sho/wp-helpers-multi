@@ -30,8 +30,25 @@ function wp_remote_retrieve_body($response) { return $response['body']; }
 function is_admin() { return $GLOBALS['is_admin']; }
 function wp_doing_ajax() { return false; }
 function is_user_logged_in() { return false; }
-function get_current_user_id() { return 1; }
-function current_user_can($capability) { return true; }
+function get_current_user_id() { return $GLOBALS['user_id'] ?? 1; }
+function current_user_can($capability) { return $capability === 'manage_network_plugins' ? ($GLOBALS['can_network'] ?? true) : ($GLOBALS['can_update'] ?? true); }
+function admin_url($path) { return 'https://example.test/wp-admin/' . $path; }
+function self_admin_url($path) { return admin_url($path); }
+function is_network_admin() { return $GLOBALS['network_admin'] ?? false; }
+function is_multisite() { return $GLOBALS['multisite'] ?? false; }
+function network_admin_url($path) { return 'https://example.test/wp-admin/network/' . $path; }
+function esc_url($url) { return htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); }
+function esc_html($text) { return htmlspecialchars($text, ENT_QUOTES, 'UTF-8'); }
+function wp_nonce_url($url, $action) { return $url . '&_wpnonce=test-' . $action; }
+function add_query_arg($key, $value, $url) { return $url . (strpos($url, '?') === false ? '?' : '&') . urlencode($key) . '=' . urlencode($value); }
+function set_transient($key, $value, $ttl) { $GLOBALS['user_cache'][$key] = ['value' => $value, 'ttl' => $ttl]; }
+function get_transient($key) { return $GLOBALS['user_cache'][$key]['value'] ?? false; }
+function delete_transient($key) { unset($GLOBALS['user_cache'][$key]); }
+class MaintenanceDenied extends Exception {}
+class MaintenanceRedirect extends Exception {}
+function wp_die($message, $title = '', $args = []) { throw new MaintenanceDenied($message, $args['response'] ?? 500); }
+function check_admin_referer($action) { if (!($GLOBALS['nonce_valid'] ?? true)) throw new MaintenanceDenied('Invalid nonce', 403); $GLOBALS['checked_nonce'] = $action; }
+function wp_safe_redirect($url) { throw new MaintenanceRedirect($url); }
 function add_menu_page(...$args) { return 'wphm-main'; }
 function add_submenu_page(...$args) { return 'wphm-page-' . $args[4]; }
 class MaintenanceDatabase {
@@ -134,4 +151,71 @@ same(null, wphm_validate_update_metadata(['version' => '1.0.0', 'download_url' =
 same(null, wphm_validate_update_metadata(['version' => '1.0.0', 'download_url' => 'https://user:pass@example.test/a.zip']), 'embedded credentials rejected');
 wphm_clear_update_cache_after_upgrade(null, ['type' => 'plugin', 'action' => 'update', 'plugins' => [$plugin]]);
 same([], $GLOBALS['cache'], 'own upgrade clears both update caches');
+
+// Regression: an installed 0.9.1 cache must not suppress an explicit update check.
+$metadata['version'] = '0.9.2';
+$GLOBALS['response'] = ['response' => ['code' => 200], 'body' => json_encode($metadata)];
+$old = $metadata; $old['version'] = '0.9.1';
+set_site_transient('wphm_update_metadata_v1', ['data' => $old], 21600);
+set_site_transient('wphm_update_last_good_v1', $old, 604800);
+set_site_transient('another_plugin_cache', ['keep' => true], 3600);
+$baseline = $GLOBALS['requests'];
+same('0.9.1', wphm_get_update_metadata()['version'], 'normal checks retain six-hour cache');
+same($baseline, $GLOBALS['requests'], 'normal cached check does not request HTTP');
+$_GET = []; wphm_recheck_updates_on_core_screen();
+same($baseline, $GLOBALS['requests'], 'opening update screen normally keeps cache');
+$_GET = ['force-check' => ['1']]; wphm_recheck_updates_on_core_screen();
+same($baseline, $GLOBALS['requests'], 'array force-check is ignored');
+$_GET = ['force-check' => '1']; $GLOBALS['can_update'] = false; wphm_recheck_updates_on_core_screen();
+same($baseline, $GLOBALS['requests'], 'unauthorized force check makes no external request');
+$GLOBALS['can_update'] = true; wphm_recheck_updates_on_core_screen();
+same($baseline + 1, $GLOBALS['requests'], 'WordPress Check again bypasses custom cache');
+same('0.9.2', wphm_get_update_metadata()['version'], 'fresh version replaces old 0.9.1 cache');
+same('no-cache', $GLOBALS['request_args']['headers']['Cache-Control'], 'explicit check requests fresh HTTP response');
+same(['keep' => true], get_site_transient('another_plugin_cache'), 'other plugins caches are untouched');
+same(['wphm_recheck_updates_on_core_screen'], $GLOBALS['hooks']['load-update-core.php'], 'standard update screen hook registered');
+$links = wphm_update_check_action_link(['deactivate' => '<a>無効化</a>']);
+same(true, strpos($links['wphm_check_updates'], '更新を確認') !== false, 'plugin row offers manual check');
+same(true, strpos($links['wphm_check_updates'], '_wpnonce=') !== false, 'manual check link includes nonce');
+same('<a>無効化</a>', $links['deactivate'], 'existing plugin actions retained');
+$GLOBALS['can_update'] = false;
+same([], wphm_update_check_action_link([]), 'manual link hidden without update permission');
+try { wphm_handle_update_check(); throw new RuntimeException('Unauthorized check unexpectedly allowed.'); }
+catch (MaintenanceDenied $error) { same(403, $error->getCode(), 'manual check enforces permission'); }
+$GLOBALS['can_update'] = true; $GLOBALS['nonce_valid'] = false;
+try { wphm_handle_update_check(); throw new RuntimeException('Invalid nonce unexpectedly allowed.'); }
+catch (MaintenanceDenied $error) { same(403, $error->getCode(), 'manual check enforces nonce'); }
+$GLOBALS['nonce_valid'] = true;
+try { wphm_handle_update_check(); throw new RuntimeException('Manual check failed to redirect.'); }
+catch (MaintenanceRedirect $redirect) { same('https://example.test/wp-admin/plugins.php?wphm-update-checked=1', $redirect->getMessage(), 'manual check redirects before HTML output'); }
+same('wphm_check_updates', $GLOBALS['checked_nonce'], 'nonce action matches row link');
+same(['fresh' => true, 'version' => '0.9.2'], get_transient('wphm_update_check_1'), 'manual result belongs to current user');
+same(300, $GLOBALS['user_cache']['wphm_update_check_1']['ttl'], 'result expires after five minutes');
+same(true, strpos(wphm_update_check_message(['fresh' => true, 'version' => '0.9.2']), 'v0.9.2への更新があります') !== false, 'fresh newer version is announced');
+same(true, strpos(wphm_update_check_message(['fresh' => true, 'version' => '0.9.0']), '利用可能な更新はありません') !== false, 'older server version cannot request downgrade');
+$GLOBALS['response'] = new WP_Error('timeout');
+same(['fresh' => false, 'version' => '0.9.2'], wphm_check_updates_now(), 'failed manual check is distinguishable from last good data');
+same(true, strpos(wphm_update_check_message(['fresh' => false, 'version' => '0.9.2']), '以前取得した情報') !== false, 'fallback is not described as a fresh success');
+$GLOBALS['cache'] = [];
+same(['fresh' => false, 'version' => ''], wphm_check_updates_now(), 'failed check without prior data reports failure');
+same(true, strpos(wphm_update_check_message(['fresh' => false, 'version' => '']), '取得できません') !== false, 'failure without fallback gives retry guidance');
+$_GET = ['wphm-update-checked' => '1']; $pagenow = 'plugins.php'; $GLOBALS['user_id'] = 2;
+ob_start(); wphm_update_check_notice(); $notice = ob_get_clean();
+same('', $notice, 'another user cannot consume the result');
+$GLOBALS['user_id'] = 1;
+ob_start(); wphm_update_check_notice(); $notice = ob_get_clean();
+same(true, strpos($notice, 'notice-success') !== false, 'fresh result shown on plugin page');
+same(false, get_transient('wphm_update_check_1'), 'notice consumed once');
+ob_start(); wphm_update_check_notice(); $notice = ob_get_clean();
+same('', $notice, 'notice is not replayed after consumption');
+$GLOBALS['network_admin'] = true; $GLOBALS['multisite'] = true;
+same(true, strpos(wphm_update_check_action_link([])['wphm_check_updates'], 'wphm-network=1') !== false, 'network plugin list preserves its return location');
+$_GET = ['wphm-network' => '1'];
+try { wphm_handle_update_check(); throw new RuntimeException('Network check failed to redirect.'); }
+catch (MaintenanceRedirect $redirect) { same('https://example.test/wp-admin/network/plugins.php?wphm-update-checked=1', $redirect->getMessage(), 'network administrator returns to network plugin list'); }
+$GLOBALS['can_network'] = false;
+try { wphm_handle_update_check(); throw new RuntimeException('Site check failed to redirect.'); }
+catch (MaintenanceRedirect $redirect) { same('https://example.test/wp-admin/plugins.php?wphm-update-checked=1', $redirect->getMessage(), 'network flag cannot redirect an unauthorized user into network administration'); }
+$GLOBALS['network_admin'] = false; $GLOBALS['multisite'] = false;
+$_GET = [];
 echo "PASS: {$checks} maintenance assertions (CSV, dates/DST, bcrypt, pre-render hooks, final status, updater).\n";

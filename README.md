@@ -89,20 +89,24 @@
     {
       "name": "WP Helpers Multi",
       "slug": "wp-helpers-multi",
-      "version": "0.9.2",
+      "version": "0.9.3",
       "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
       "requires": "6.0",
       "requires_php": "7.4",
       "last_updated": "2026-10-25",
       "sections": {
         "description": "Utility toolbox for WordPress admins.",
-        "changelog": "- v0.9.2 投稿・固定ページの編集画面内で検索・置換"
+        "changelog": "- v0.9.3 手動の更新確認で専用キャッシュを無視して再取得"
       }
     }
 
 更新時は本体の `Version` と `WPHM_VERSION`、`update.json` の `version` をそろえます。ZIPを先に配置し、最後に `update.json` を公開すると、ダウンロード先の準備が整ってから更新通知が表示されます。ZIP内の最上位フォルダ名は `wp-helpers-multi` を維持してください。
 
 v0.9.1以降の更新情報は正常取得時に6時間キャッシュします。取得に失敗した場合は10分間隔で再試行し、最大7日間保持した直近の正常情報を使用します。正常情報がない場合は更新通知を出しません。プラグイン自身の更新完了時には更新情報キャッシュを解除します。
+
+v0.9.3以降は、プラグイン一覧のWP Helpers Multiの「更新を確認」、または「ダッシュボード → 更新 → 再確認」でキャッシュを無視して再取得できます。通常の画面表示では従来どおりキャッシュを利用します。手動確認は更新権限を持つユーザーに限定し、一覧のリンクではnonceも検証します。通信失敗時は前回の情報を使用したことを明示します。
+
+v0.9.1〜v0.9.2にはこの再確認処理がありません。旧版のキャッシュが残るサイトへv0.9.3を初めて導入する際は、キャッシュの期限切れ後に通常更新するか、配布ZIPをWordPressのプラグインアップロードから一度上書き更新してください。v0.9.3導入後の再確認では待つ必要はありません。
 
 ---
 

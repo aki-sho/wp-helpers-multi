@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.9.3",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-10-25",
+  "sections": {
+    "description": "投稿・固定ページの編集画面内の検索・置換など、WordPressの便利ツールをまとめたプラグインです。",
+    "changelog": "<h4>0.9.3</h4><ul><li>プラグイン一覧に「更新を確認」を追加。</li><li>WordPress標準の「再確認」でも専用キャッシュを無視して更新情報を再取得。</li><li>取得失敗時の前回情報へのフォールバックを明示。</li></ul><h4>0.9.2</h4><p>投稿・固定ページの編集画面内に検索・置換を追加。未保存の本文、個別／一括置換、元に戻すに対応。</p>"
+  }
+}
