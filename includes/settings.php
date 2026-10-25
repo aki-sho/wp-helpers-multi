@@ -84,6 +84,7 @@ function wphm_get_tool_definitions(): array {
             'page_title'  => 'リンク点検',
             'slug'        => 'wphm-link-inspector',
             'callback'    => 'wphm_render_link_inspector',
+            'load_callback' => 'wphm_load_link_inspector',
             'default'     => true,
         ],
         'access_log' => [
@@ -95,6 +96,7 @@ function wphm_get_tool_definitions(): array {
             'page_title'  => 'アクセスログ',
             'slug'        => 'wphm-access-log',
             'callback'    => 'wphm_render_access_log',
+            'load_callback' => 'wphm_access_log_handle_request',
             'default'     => true,
         ],
         'post_data' => [
@@ -108,6 +110,17 @@ function wphm_get_tool_definitions(): array {
             'callback'    => 'wphm_post_data_log',
             'default'     => true,
         ],
+        'search_replace' => [
+            'label'       => '記事検索・置換',
+            'description' => '投稿・固定ページの文章を検索し、差分を確認して置換・復元します。',
+            'icon'        => 'dashicons-search',
+            'group'       => 'content',
+            'menu_title'  => '記事検索・置換',
+            'page_title'  => '記事検索・置換',
+            'slug'        => 'wphm-search-replace',
+            'callback'    => 'wphm_render_search_replace',
+            'default'     => true,
+        ],
         'comment_manager' => [
             'label'       => 'コメント管理',
             'description' => 'コメントとスパムを管理し、IP拒否状態を確認します。',
@@ -117,6 +130,7 @@ function wphm_get_tool_definitions(): array {
             'page_title'  => 'コメント管理',
             'slug'        => 'wphm-comment-manager',
             'callback'    => 'wphm_render_comment_manager',
+            'load_callback' => 'wphm_comment_manager_handle_request',
             'default'     => true,
         ],
     ];

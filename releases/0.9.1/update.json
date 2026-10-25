@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.9.1",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-10-25",
+  "sections": {
+    "description": "WordPress管理画面に記事検索・置換などの便利ツールを追加します。",
+    "changelog": "<h4>0.9.1</h4><ul><li>CSV出力・更新処理を画面描画前へ移動。</li><li>bcrypt入力、日時・タイムゾーン、アクセスログのHTTPステータス記録を修正。</li><li>専用サーバーの更新情報キャッシュ・障害時動作・Update URI対応を追加。</li><li>共通CSV出力で数式扱いとなる文字列を保護。</li></ul><h4>0.9.0</h4><p>記事検索・置換、履歴と復元を追加。</p>"
+  }
+}

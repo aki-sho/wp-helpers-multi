@@ -5,8 +5,8 @@ if (!defined('ABSPATH')) exit;
  * admin.php から呼ばれる想定：
  * wphm_render_access_log() → require tools/access_log/access_log.php → この関数が見つかる
  */
-function wphm_render_access_log_tool_page(): void {
-    if (!current_user_can('manage_options')) return;
+function wphm_access_log_handle_request(): void {
+    if (!current_user_can('manage_options')) wp_die('権限がありません。', '', ['response' => 403]);
 
     // 念のため（初回でも確実にテーブルができる）
     wphm_access_log_schema_ensure();
@@ -80,6 +80,10 @@ function wphm_render_access_log_tool_page(): void {
         wphm_access_log_export_csv();
         exit;
     }
+}
+
+function wphm_render_access_log_tool_page(): void {
+    if (!current_user_can('manage_options')) return;
 
     // ===== filters =====
     $q  = isset($_GET['q']) ? sanitize_text_field((string)$_GET['q']) : '';
@@ -172,25 +176,17 @@ function wphm_access_log_export_csv(): void {
         ? wphm_ip_blocklist_get_spam_comment_counts($export_ips)
         : [];
 
-    $filename = 'access-log-' . date('Ymd-His') . '.csv';
-
-    nocache_headers();
-    header('Content-Type: text/csv; charset=UTF-8');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
-
-    // Excel 対策（UTF-8 BOM）
-    echo "\xEF\xBB\xBF";
-
-    $out = fopen('php://output', 'w');
-    fputcsv($out, ['id','datetime','method','status','ip','ip_blocked','spam_comment_count','user_id','url','path','referrer','user_agent']);
+    $filename = 'access-log-' . wp_date('Ymd-His') . '.csv';
+    $out = wphm_csv_open_output($filename);
+    wphm_csv_write_row($out, ['id','datetime','method','status','ip','ip_blocked','spam_comment_count','user_id','url','path','referrer','user_agent']);
 
     foreach ($result['items'] as $r) {
         $normalized_ip = function_exists('wphm_ip_blocklist_normalize_ip')
             ? wphm_ip_blocklist_normalize_ip((string)$r['ip'])
             : trim((string)$r['ip']);
-        fputcsv($out, [
+        wphm_csv_write_row($out, [
             $r['id'],
-            date('Y-m-d H:i:s', (int)$r['created_at']),
+            wphm_format_timestamp((int)$r['created_at']),
             $r['method'],
             $r['status'],
             $r['ip'],

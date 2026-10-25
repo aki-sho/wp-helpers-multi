@@ -71,9 +71,10 @@ function wphm_li_require_cap_or_die(): void {
     if (!current_user_can('manage_options')) wp_die('権限がありません');
 }
 /** =========================
- * POST handler（表示関数の先頭で実行）
+ * POST handler（load-* フックで管理画面のHTML出力前に実行）
  * ========================= */
-function wphm_li_handle_post_on_render(): void {
+function wphm_li_handle_request(): void {
+    wphm_li_require_cap_or_die();
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') return;
     if (empty($_POST['wphm_li_do'])) return;
 
@@ -105,7 +106,7 @@ function wphm_li_handle_post_on_render(): void {
  * ========================= */
 function wphm_render_link_inspector_tool_page() {
 
-  wphm_li_handle_post_on_render();
+    wphm_li_require_cap_or_die();
 
     $settings = wphm_li_get_settings();
     $state    = wphm_li_get_state();

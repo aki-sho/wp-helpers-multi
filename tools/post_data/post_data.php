@@ -110,20 +110,8 @@ function fv_export_list_handle_download() {
     $order
   );
 
-  // 余計な出力が混ざるとCSVが壊れるので掃除
-  while (ob_get_level()) ob_end_clean();
-
-  $filename = 'export_' . date_i18n('Ymd_His') . '.csv';
-
-  header('Content-Type: text/csv; charset=UTF-8');
-  header('Content-Disposition: attachment; filename="' . $filename . '"');
-  header('Pragma: no-cache');
-  header('Expires: 0');
-
-  // Excel文字化け対策（UTF-8 BOM）
-  echo "\xEF\xBB\xBF";
-
-  $out = fopen('php://output', 'w');
+  $filename = 'export_' . wp_date('Ymd_His') . '.csv';
+  $out = wphm_csv_open_output($filename);
 
   // ==================================================
   //
@@ -138,7 +126,7 @@ function fv_export_list_handle_download() {
   foreach ($selected_cols as $col_key) {
     $header[] = $available_cols[$col_key] ?? $col_key;
   }
-  fputcsv($out, $header);
+  wphm_csv_write_row($out, $header);
 
   // データ行
   foreach ($rows as $r) {
@@ -146,7 +134,7 @@ function fv_export_list_handle_download() {
     foreach ($selected_cols as $col_key) {
       $line[] = $r[$col_key] ?? '';
     }
-    fputcsv($out, $line);
+    wphm_csv_write_row($out, $line);
   }
 
 
@@ -412,9 +400,8 @@ function fv_export_list_calc_char_count($post_id) {
 // ✅ 日付：見やすく（WPのタイムゾーン反映）
 function fv_export_list_format_datetime($mysql_datetime) {
   if (!$mysql_datetime) return '';
-  $ts = strtotime($mysql_datetime);
-  if (!$ts) return '';
-  return wp_date('Y-m-d H:i', $ts);
+  $date = wphm_parse_site_datetime((string) $mysql_datetime);
+  return $date ? wphm_format_timestamp($date->getTimestamp(), 'Y-m-d H:i') : '';
 }
 
 function fv_export_list_render_page() {

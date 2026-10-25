@@ -1,0 +1,6 @@
+.wphm-test/
+.wphm-sync/
+__pycache__/
+*.py[cod]
+releases/*/*.zip
+docs/images/search-replace-preview.jpg

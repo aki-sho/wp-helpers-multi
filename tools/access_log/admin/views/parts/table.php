@@ -45,7 +45,7 @@ $spam_comment_counts = $data['spam_comment_counts'] ?? [];
               value="<?php echo (int)$r['id']; ?>">
           </td>
           <td><?php echo (int)$r['id']; ?></td>
-          <td><?php echo esc_html(date('Y-m-d H:i:s', (int)$r['created_at'])); ?></td>
+          <td><?php echo esc_html(wphm_format_timestamp((int)$r['created_at'])); ?></td>
           <td><?php echo esc_html($r['method']); ?></td>
           <td><?php echo esc_html($r['status']); ?></td>
           <td><?php echo esc_html($r['ip']); ?></td>

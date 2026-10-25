@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.9.0",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-10-25",
+  "sections": {
+    "description": "WordPress管理画面に記事検索・置換などの便利ツールを追加します。",
+    "changelog": "<h4>0.9.0</h4><ul><li>投稿・固定ページの文章を検索し、差分を確認して選択置換する機能を追加。</li><li>置換前後の本文を保存する履歴と復元を追加。</li><li>本文の変更検知、権限確認、編集ロック、重複実行防止に対応。</li></ul>"
+  }
+}

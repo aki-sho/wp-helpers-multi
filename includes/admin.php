@@ -37,7 +37,7 @@ function wphm_register_admin_menu(): void {
             continue;
         }
 
-        add_submenu_page(
+        $hook = add_submenu_page(
             'wp-helpers-multi',
             (string) $tool['page_title'],
             (string) $tool['menu_title'],
@@ -45,6 +45,9 @@ function wphm_register_admin_menu(): void {
             (string) $tool['slug'],
             (string) $tool['callback']
         );
+        if ($hook && !empty($tool['load_callback'])) {
+            add_action('load-' . $hook, (string) $tool['load_callback']);
+        }
     }
 }
 
@@ -276,6 +279,11 @@ function wphm_render_timer(): void {
     wphm_require_and_render_tool(__DIR__ . '/../tools/timer.php', 'タイマー', 'wphm_render_timer_tool_page');
 }
 
+function wphm_load_link_inspector(): void {
+    require_once __DIR__ . '/../tools/link_inspector.php';
+    wphm_li_handle_request();
+}
+
 function wphm_render_link_inspector(): void {
     wphm_require_and_render_tool(__DIR__ . '/../tools/link_inspector.php', 'リンク点検', 'wphm_render_link_inspector_tool_page');
 }
@@ -286,6 +294,10 @@ function wphm_render_access_log(): void {
 
 function wphm_post_data_log(): void {
     wphm_require_and_render_tool(__DIR__ . '/../tools/post_data/post_data.php', '投稿データ', 'wphm_post_data_log_tool_page');
+}
+
+function wphm_render_search_replace(): void {
+    wphm_require_and_render_tool(__DIR__ . '/../tools/search_replace/search_replace.php', '記事検索・置換', 'wphm_render_search_replace_tool_page');
 }
 
 function wphm_render_comment_manager(): void {

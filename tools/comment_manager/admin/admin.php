@@ -1,8 +1,8 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-function wphm_render_comment_manager_tool_page(): void {
-    if (!current_user_can('manage_options')) return;
+function wphm_comment_manager_handle_request(): void {
+    if (!current_user_can('manage_options')) wp_die('権限がありません。', '', ['response' => 403]);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['wphm_comment_manager_action'])) {
         if (!isset($_POST['_wpnonce']) || !wp_verify_nonce((string)$_POST['_wpnonce'], 'wphm_comment_manager_action')) {
@@ -39,6 +39,10 @@ function wphm_render_comment_manager_tool_page(): void {
             exit;
         }
     }
+}
+
+function wphm_render_comment_manager_tool_page(): void {
+    if (!current_user_can('manage_options')) return;
 
     $status  = isset($_GET['status']) ? wphm_comment_manager_normalize_status((string)$_GET['status']) : 'all';
     $search  = isset($_GET['s']) ? sanitize_text_field((string)$_GET['s']) : '';

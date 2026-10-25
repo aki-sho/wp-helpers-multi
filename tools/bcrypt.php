@@ -20,6 +20,10 @@ if (!defined('ABSPATH')) exit;
 /**
  * bcrypt ツールページの描画（admin.php から呼ばれる）
  */
+function wphm_bcrypt_request_text(string $key): string {
+    return isset($_POST[$key]) && is_string($_POST[$key]) ? wp_unslash($_POST[$key]) : '';
+}
+
 function wphm_render_bcrypt_tool_page() {
     if (!current_user_can('manage_options')) {
         wp_die('権限がありません。');
@@ -51,11 +55,11 @@ function wphm_render_bcrypt_tool_page() {
             wp_die('Nonceが不正です。');
         }
 
-        $mode = isset($_POST['mode']) ? sanitize_text_field($_POST['mode']) : '';
+        $mode = sanitize_key(wphm_bcrypt_request_text('mode'));
 
         if ($mode === 'hash') {
             // --- ハッシュ生成 ---
-            $in_password = isset($_POST['password']) ? (string) $_POST['password'] : '';
+            $in_password = wphm_bcrypt_request_text('password');
             $in_cost = isset($_POST['cost']) ? (int) $_POST['cost'] : 10;
 
             // cost は一般に 4〜15 くらいで十分（上げすぎると管理画面で重くなる）
@@ -73,8 +77,8 @@ function wphm_render_bcrypt_tool_page() {
 
         } elseif ($mode === 'verify') {
             // --- 検証 ---
-            $in_plain_for_verify = isset($_POST['plain']) ? (string) $_POST['plain'] : '';
-            $in_hash_for_verify  = isset($_POST['hash']) ? (string) $_POST['hash'] : '';
+            $in_plain_for_verify = wphm_bcrypt_request_text('plain');
+            $in_hash_for_verify  = wphm_bcrypt_request_text('hash');
 
             if ($in_plain_for_verify === '' || $in_hash_for_verify === '') {
                 $message = '平文とハッシュの両方を入力してください。';

@@ -45,5 +45,18 @@ function wphm_access_log_record_front(): void {
     $row = wphm_access_log_build_row();
     if (!$row) return;
 
+    // Capture request details now; redirects, wp_die() and the template may still change the status.
+    if (!isset($GLOBALS['wphm_access_log_pending_row'])) {
+        $GLOBALS['wphm_access_log_pending_row'] = $row;
+        register_shutdown_function('wphm_access_log_flush_pending');
+    }
+}
+
+/** Runs after WordPress' shutdown/fatal-error handlers so the final PHP response code is available. */
+function wphm_access_log_flush_pending(): void {
+    if (empty($GLOBALS['wphm_access_log_pending_row'])) return;
+    $row = $GLOBALS['wphm_access_log_pending_row'];
+    unset($GLOBALS['wphm_access_log_pending_row']);
+    $row['status'] = wphm_access_log_response_status();
     wphm_access_log_repo_insert($row);
 }

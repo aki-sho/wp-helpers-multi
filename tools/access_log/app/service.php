@@ -55,15 +55,12 @@ function wphm_access_log_build_row(): ?array {
     $parts = wp_parse_url($url);
     $path = (string)($parts['path'] ?? '/');
 
-    $status = function_exists('wphm_ip_blocklist_is_blocked') && wphm_ip_blocklist_is_blocked($ip)
-        ? 403
-        : 200;
     $user_id = get_current_user_id();
 
     return [
         'created_at' => time(),
         'method'     => $method,
-        'status'     => $status,
+        'status'     => wphm_access_log_response_status(),
         'url'        => $url,
         'path'       => $path,
         'referrer'   => $ref,
@@ -90,6 +87,12 @@ function wphm_access_log_date_to_ts(string $ymd, bool $end_of_day = false): int 
     $ymd = trim($ymd);
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) return 0;
 
-    $t = strtotime($ymd . ($end_of_day ? ' 23:59:59' : ' 00:00:00'));
-    return $t ? (int)$t : 0;
+    $date = wphm_parse_site_datetime($ymd, 'Y-m-d');
+    if (!$date) return 0;
+    return $end_of_day ? $date->setTime(23, 59, 59)->getTimestamp() : $date->getTimestamp();
+}
+
+function wphm_access_log_response_status(): int {
+    $status = http_response_code();
+    return is_int($status) && $status >= 100 && $status <= 599 ? $status : 0;
 }
