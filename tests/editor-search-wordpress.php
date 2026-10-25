@@ -1,10 +1,11 @@
 <?php
 if (PHP_SAPI !== 'cli') exit;
 $root = dirname(__DIR__);
-$runtime = json_decode(file_get_contents($root . '/.wphm-test/editor-runtime.json'), true);
+$fixture = getenv('WPHM_EDITOR_FIXTURE') ?: $root . '/.wphm-test';
+$runtime = json_decode(file_get_contents($fixture . '/editor-runtime.json'), true);
 define('WP_ADMIN', true);
 $_SERVER['HTTP_HOST'] = '127.0.0.1:8767'; $_SERVER['REQUEST_URI'] = '/wp-admin/post.php'; $_SERVER['SERVER_PROTOCOL'] = 'HTTP/1.1';
-require $root . '/.wphm-test/wordpress/wp-load.php';
+require $fixture . '/wordpress/wp-load.php';
 require ABSPATH . 'wp-admin/includes/admin.php';
 $checks = 0;
 function editor_same($expected, $actual, $label) { global $checks; $checks++; if ($expected !== $actual) throw new RuntimeException($label . ': ' . var_export($actual, true)); }
@@ -14,6 +15,7 @@ set_current_screen('post'); get_current_screen()->is_block_editor(true);
 $post = get_post($runtime['post']);
 wphm_sr_enqueue_editor('post.php');
 editor_same(true, wp_script_is('wphm-editor-search', 'enqueued'), 'post editor has search');
+editor_same(true, strpos(wp_scripts()->registered['wphm-editor-search']->extra['data'], 'editor-search-worker.js') !== false, 'regex worker URL is provided to the editor');
 editor_same(true, in_array('wp-block-editor', wp_scripts()->registered['wphm-editor-search-adapters']->deps, true), 'block adapter declares editor store');
 editor_reset_assets(); $post = get_post($runtime['page']); get_current_screen()->post_type = 'page';
 wphm_sr_enqueue_editor('post.php'); editor_same(true, wp_script_is('wphm-editor-search', 'enqueued'), 'page editor has search');

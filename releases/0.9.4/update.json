@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.9.4",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-10-25",
+  "sections": {
+    "description": "投稿・固定ページの編集画面内で、日本語・正規表現による本文の検索・置換を使用できます。",
+    "changelog": "<h4>0.9.4</h4><ul><li>編集画面内の検索・置換に「正規表現（.*）」を追加。</li><li>番号のパターン検索、行頭・行末、キャプチャを使った置換に対応。</li><li>無効な式のエラー表示、長時間検索の中止と検索中の誤置換防止を追加。</li></ul><h4>0.9.3</h4><p>ダッシュボードの再確認でも専用キャッシュを無視して更新情報を再取得。</p>"
+  }
+}

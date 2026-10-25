@@ -1,4 +1,4 @@
-/* Literal visible-text matching. Offsets refer to the original HTML, never to reserialized markup. */
+/* Visible-text matching. Offsets refer to the original HTML, never to reserialized markup. */
 (() => {
   'use strict';
   const denied = new Set(['script', 'style', 'code', 'pre', 'textarea', 'iframe', 'svg', 'math', 'object', 'template']);
@@ -71,8 +71,7 @@
     });
     return { matches, limited };
   }
-  function scanHTML(html, needle, caseSensitive, shortcodes = []) {
-    const runs = htmlRuns(html, shortcodes); const result = find(runs, needle, caseSensitive);
+  function attachRanges(runs, result) {
     result.matches = result.matches.filter(match => {
       const ranges = [];
       for (const part of runs[match.runIndex].parts) {
@@ -86,15 +85,35 @@
     });
     return result;
   }
-  function replaceHTML(html, matches, replacement) {
+  function scanHTML(html, needle, caseSensitive, shortcodes = []) {
+    const runs = htmlRuns(html, shortcodes); return attachRanges(runs, find(runs, needle, caseSensitive));
+  }
+  function expandReplacement(replacement, match) {
+    return replacement.replace(/\$(\$|&|0|[1-9][0-9]?|<[^>]+>)/g, (token, key) => {
+      if (key === '$') return '$';
+      if (key === '&' || key === '0') return match.text;
+      if (key[0] === '<') {
+        const name = key.slice(1, -1);
+        return match.groups && Object.prototype.hasOwnProperty.call(match.groups, name) ? match.groups[name] || '' : token;
+      }
+      const number = Number(key), captures = match.captures || [];
+      if (number <= captures.length) return captures[number - 1] || '';
+      if (key.length === 2 && Number(key[0]) <= captures.length) return (captures[Number(key[0]) - 1] || '') + key[1];
+      return token;
+    });
+  }
+  function replaceHTML(html, matches, replacement, regularExpression = false) {
     const changes = [];
-    for (const match of matches) match.ranges.forEach((range, index) => changes.push({ start: range[0], end: range[1], text: index === 0 ? escapeHTML(replacement.replace(/\r\n/g, '\n')).replace(/\n/g, '<br>') : '' }));
+    for (const match of matches) {
+      const text = regularExpression ? expandReplacement(replacement, match) : replacement;
+      match.ranges.forEach((range, index) => changes.push({ start: range[0], end: range[1], text: index === 0 ? escapeHTML(text.replace(/\r\n/g, '\n')).replace(/\n/g, '<br>') : '' }));
+    }
     changes.sort((a, b) => a.start - b.start);
     const result = []; let cursor = 0;
     for (const change of changes) { result.push(html.slice(cursor, change.start), change.text); cursor = change.end; }
     result.push(html.slice(cursor)); return result.join('');
   }
-  function domRanges(root, needle, caseSensitive, shortcodes = []) {
+  function domRuns(root) {
     if (!root) return [];
     const runs = []; let run = { text: '', parts: [] };
     const flush = () => { if (run.text) runs.push(run); run = { text: '', parts: [] }; };
@@ -108,9 +127,13 @@
       node.childNodes.forEach(walk);
       if (boundary.test(tag)) flush();
     }
-    walk(root); flush();
-    return find(runs, needle, caseSensitive).matches.filter(match => !protectedRanges(runs[match.runIndex].text, shortcodes).some(([start, end]) => match.start < end && match.end > start)).map(match => {
-      const parts = runs[match.runIndex].parts;
+    walk(root); flush(); return runs;
+  }
+  function rangesFromDOMMatches(root, runs, matches) {
+    return matches.map(match => {
+      const run = runs[match.runIndex];
+      if (!run || run.text.slice(match.start, match.end) !== match.text) return null;
+      const parts = run.parts;
       const first = parts.find(p => p.end > match.start), last = parts.find(p => p.end >= match.end);
       if (!first || !last) return null;
       const range = root.ownerDocument.createRange();
@@ -119,5 +142,15 @@
       return range;
     });
   }
-  window.WPHMEditorSearchEngine = { scanHTML, replaceHTML, domRanges };
+  function domRanges(root, needle, caseSensitive, shortcodes = []) {
+    if (!root) return [];
+    const runs = domRuns(root);
+    const matches = find(runs, needle, caseSensitive).matches.filter(match => !protectedRanges(runs[match.runIndex].text, shortcodes).some(([start, end]) => match.start < end && match.end > start));
+    return rangesFromDOMMatches(root, runs, matches);
+  }
+  function domRangesForMatches(root, matches) {
+    if (!root) return [];
+    return rangesFromDOMMatches(root, domRuns(root), matches);
+  }
+  window.WPHMEditorSearchEngine = { scanHTML, replaceHTML, domRanges, htmlRuns, attachRanges, domRangesForMatches };
 })();

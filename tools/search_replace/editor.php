@@ -18,5 +18,6 @@ function wphm_sr_enqueue_editor(string $hook): void {
     wp_localize_script('wphm-editor-search', 'wphmEditorSearch', [
         'blockEditor' => $block_editor,
         'shortcodes' => is_array($shortcode_tags) ? array_keys($shortcode_tags) : [],
+        'workerUrl' => WPHM_PLUGIN_URL . 'assets/js/editor-search-worker.js?ver=' . rawurlencode(WPHM_VERSION),
     ]);
 }

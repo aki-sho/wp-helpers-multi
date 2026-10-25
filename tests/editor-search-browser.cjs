@@ -20,7 +20,7 @@ assert.equal(new URL(base).hostname, '127.0.0.1', 'fixture must be loopback');
     const replacement = () => page.locator('textarea[name="wphm-editor-replacement"]');
     async function count(expected) {
       try { await page.waitForFunction(text => document.querySelector('.wphm-es-count')?.textContent === text, expected, { timeout: 10000 }); }
-      catch (error) { console.error('Search state:', await page.evaluate(() => ({ count: document.querySelector('.wphm-es-count')?.textContent, message: document.querySelector('.wphm-es-message')?.textContent, body: window.wp?.data?.select('core/editor')?.getEditedPostContent?.() })), errors); throw error; }
+      catch (error) { console.error('Search state:', await page.evaluate(() => ({ count: document.querySelector('.wphm-es-count')?.textContent, message: document.querySelector('.wphm-es-message')?.textContent, body: window.wp?.data?.select('core/editor')?.getEditedPostContent?.(), tiny: window.tinymce?.get('content')?.getContent({ format: 'raw' }) })), errors); throw error; }
       checks++;
     }
     const content = () => page.evaluate(() => wp.data.select('core/editor').getEditedPostContent());
@@ -55,7 +55,7 @@ assert.equal(new URL(base).hostname, '127.0.0.1', 'fixture must be loopback');
     });
     same(highlighted, 4, 'visible text is highlighted in the real editor');
     same(await content(), original, 'highlighting never modifies article markup');
-    await page.screenshot({ path: path.join(__dirname, '../.wphm-test/editor-search-preview.png'), fullPage: false });
+    await page.screenshot({ path: path.join(fixture, 'editor-search-preview.png'), fullPage: false });
     const switchMode = async mode => page.evaluate(mode => {
       const current = wp.data.dispatch('core/editor');
       (current.switchEditorMode ? current : wp.data.dispatch('core/edit-post')).switchEditorMode(mode);
@@ -94,7 +94,25 @@ assert.equal(new URL(base).hostname, '127.0.0.1', 'fixture must be loopback');
     await page.evaluate(() => wp.data.dispatch('core/editor').savePost());
     same((await saved(runtime.post)).includes('&lt;New &amp; Name&gt;'), true, 'normal editor save persists replacement');
     same(await saved(runtime.other), otherSaved, 'saving still affects only the edited article');
-    await page.screenshot({ path: path.join(__dirname, '../.wphm-test/editor-block.png'), fullPage: false });
+    await page.screenshot({ path: path.join(fixture, 'editor-block.png'), fullPage: false });
+    await page.evaluate(() => wp.data.dispatch('core/block-editor').insertBlocks([wp.blocks.createBlock('core/paragraph', { content: '1. 項目<br>12.\t次の項目<br>3.最後' })]));
+    const beforeRegex = await content();
+    await query().fill('\\d+\\.[ \\t]*'); await count('0 / 0件');
+    await page.locator('input[name="wphm-editor-regex"]').check(); await count('1 / 3件');
+    await page.waitForFunction(() => window.WPHMEditorSearchAdapters.editorDocuments().reduce((n, doc) => n + (doc.defaultView.CSS.highlights?.get('wphm-search')?.size || 0), 0) === 3); checks++;
+    await replacement().fill(''); await page.screenshot({ path: path.join(fixture, 'editor-regex-preview.png') });
+    await page.getByRole('button', { name: 'すべて置換', exact: true }).click(); await count('0 / 0件');
+    same((await content()).includes('<p>項目<br>次の項目<br>最後</p>'), true, 'requested regex removes prefixes in the actual block editor');
+    await page.locator('.wphm-es-actions').getByRole('button', { name: '元に戻す', exact: true }).click(); await count('1 / 3件');
+    same(await content(), beforeRegex, 'native undo restores regex replacement and retains inserted block');
+    await query().fill('(\\d+)\\.[ \\t]*'); await count('1 / 3件'); await replacement().fill('番号$1：');
+    await page.getByRole('button', { name: 'すべて置換', exact: true }).click(); await count('0 / 0件');
+    same((await content()).includes('番号12：次の項目'), true, 'capture replacement works in the actual block editor');
+    await page.locator('.wphm-es-actions').getByRole('button', { name: '元に戻す', exact: true }).click(); await count('1 / 3件');
+    same(await content(), beforeRegex, 'capture replacement can also be undone');
+    await query().fill('['); await page.waitForFunction(() => document.querySelector('.wphm-es-message').textContent.includes('正規表現の書き方'));
+    same(await page.getByRole('button', { name: 'すべて置換', exact: true }).isDisabled(), true, 'invalid regex cannot update Gutenberg content');
+    await query().fill('\\d+\\.[ \\t]*'); await count('1 / 3件');
     await open(runtime.page); await query().fill('ワードプレス'); await count('1 / 1件');
     await replacement().fill('WordPress'); await page.getByRole('button', { name: 'すべて置換', exact: true }).click(); await count('0 / 0件');
     same((await content()).includes('固定ページのWordPress'), true, 'fixed pages use the same editor panel');
@@ -117,6 +135,15 @@ assert.equal(new URL(base).hostname, '127.0.0.1', 'fixture must be loopback');
     same(await page.evaluate(() => tinymce.get('content').getContent().includes('<strong>WordPress</strong>')), true, 'TinyMCE formatting survives');
     await page.locator('.wphm-es-actions').getByRole('button', { name: '元に戻す', exact: true }).click(); await count('1 / 2件');
     same(await page.evaluate(() => tinymce.get('content').getContent({ format: 'raw' })), classicOriginal, 'TinyMCE native undo restores content');
+    await page.evaluate(() => { const editor = tinymce.get('content'); editor.setContent('<p>1. あ<br>12. い<br>3.う</p>'); editor.undoManager.add(); });
+    const tinyRegexOriginal = await page.evaluate(() => tinymce.get('content').getContent({ format: 'raw' }));
+    await query().fill('\\d+\\.[ \\t]*'); await page.locator('input[name="wphm-editor-regex"]').check(); await count('1 / 3件');
+    await replacement().fill(''); await page.getByRole('button', { name: 'すべて置換', exact: true }).click(); await count('0 / 0件');
+    same(await page.evaluate(() => tinymce.get('content').getContent().includes('<p>あ<br />い<br />う</p>')), true, 'regex replacement works in the real TinyMCE editor');
+    await page.locator('.wphm-es-actions').getByRole('button', { name: '元に戻す', exact: true }).click(); await count('1 / 3件');
+    same(await page.evaluate(() => tinymce.get('content').getContent({ format: 'raw' })), tinyRegexOriginal, 'TinyMCE can undo regex replacement');
+    await page.evaluate(html => { const editor = tinymce.get('content'); editor.setContent(html); editor.undoManager.add(); }, classicOriginal);
+    await page.locator('input[name="wphm-editor-regex"]').uncheck(); await query().fill('ワードプレス'); await count('1 / 2件'); await replacement().fill('WordPress');
     await page.evaluate(() => { for (const doc of window.WPHMEditorSearchAdapters.editorDocuments()) Object.defineProperty(doc.defaultView, 'Highlight', { value: undefined, configurable: true }); });
     await page.locator('.wphm-es-case input').check();
     same(await page.evaluate(() => tinymce.get('content').getContent({ format: 'raw' })), classicOriginal, 'fallback highlighting stays outside TinyMCE article HTML');
@@ -134,7 +161,7 @@ assert.equal(new URL(base).hostname, '127.0.0.1', 'fixture must be loopback');
     await page.keyboard.press('Escape'); same(await page.locator('.wphm-es-panel').isVisible(), false, 'Escape closes the panel');
     await page.setViewportSize({ width: 390, height: 844 }); await page.locator('.wphm-es-launch').click();
     const box = await page.locator('.wphm-es-panel').boundingBox(); same(box.x >= 0 && box.x + box.width <= 390, true, 'panel fits a narrow viewport');
-    await page.screenshot({ path: path.join(__dirname, '../.wphm-test/editor-mobile.png') });
+    await page.screenshot({ path: path.join(fixture, 'editor-mobile.png') });
     same(errors, [], 'no browser runtime errors');
     console.log(`PASS: ${checks} real WordPress editor assertions.`);
   } finally { await browser.close(); }
