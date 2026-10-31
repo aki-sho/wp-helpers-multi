@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.9.5",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-10-31",
+  "sections": {
+    "description": "投稿・固定ページの編集画面内で、日本語・正規表現による本文の検索・置換を使用できます。",
+    "changelog": "- v0.9.5 ログの保存・頻度・機密情報保護、リンク点検のSSRF・取得量制限、QRのブラウザ内生成、bcryptの入力と負荷制限、IP拒否の確認・許可リスト・有効期限、置換結果の生成前上限判定"
+  }
+}

@@ -87,6 +87,11 @@ const server = http.createServer((request, response) => {
     same(await page.locator('.wphm-es-launch').isVisible(), true, 'closing cancels an active worker');
     await page.locator('#content').fill('<p>12. 再開</p>'); await page.locator('.wphm-es-launch').click(); await query.fill('\\d+\\.[ \\t]*'); await counter('1 / 1件');
     same(await page.locator('#content').inputValue(), '<p>12. 再開</p>', 'stale cancelled results cannot change the article');
+    await page.locator('#content').fill('A'.repeat(40000)); await query.fill('(A+)'); await counter('1 / 1件');
+    await page.locator('textarea[name="wphm-editor-replacement"]').fill('$1'.repeat(100));
+    await page.getByRole('button', { name: 'すべて置換', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.wphm-es-message').textContent.includes('200万文字'));
+    same((await page.locator('#content').inputValue()).length, 40000, 'oversized replacement leaves editor content intact');
     same(errors, [], 'regex UI has no runtime errors');
     console.log(`PASS: ${checks} regex worker and editor UI assertions.`);
   } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

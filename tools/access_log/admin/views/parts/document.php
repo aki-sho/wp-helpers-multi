@@ -25,13 +25,13 @@ if (!defined('ABSPATH')) exit;
     <li><strong>日時</strong>：アクセスが記録された日時です。</li>
     <li><strong>ID</strong>：ログの連番IDです（削除・確認用）。</li>
     <li><strong>Method</strong>：HTTPメソッド（GET/POST など）です。</li>
-    <li><strong>Status</strong>：HTTPステータスコードです（現在は基本 200 として記録）。</li>
+    <li><strong>Status</strong>：HTTPステータスコードです（最終応答のステータスを記録）。</li>
     <li><strong>IP</strong>：アクセス元IPアドレスです。</li>
     <li><strong>IP拒否</strong>：共通拒否リストの状態です。変更はコメント管理にも即時反映されます。</li>
     <li><strong>スパムコメント</strong>：同じIPアドレスでスパム状態になっているコメント件数です。</li>
     <li><strong>User</strong>：ログイン中ユーザーIDです（未ログインは 0）。</li>
-    <li><strong>URL</strong>：アクセスされた完全なURLです。</li>
-    <li><strong>Referrer</strong>：参照元URLです（無い場合は空）。</li>
+    <li><strong>URL</strong>：アクセスされたURLです（認証情報・クエリ・フラグメントは除去）。</li>
+    <li><strong>Referrer</strong>：参照元URLです（認証情報・クエリ・フラグメントは除去、無い場合は空）。</li>
     <li><strong>UA</strong>：User-Agent（ブラウザ/端末情報）です。</li>
   </ul>
 

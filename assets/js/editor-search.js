@@ -196,11 +196,13 @@
     if (!selected.length) return;
     const grouped = new Map();
     selected.forEach(entry => { if (!grouped.has(entry.source.key)) grouped.set(entry.source.key, { source: entry.source, matches: [] }); grouped.get(entry.source.key).matches.push(entry.match); });
-    const changes = Array.from(grouped.values(), group => ({ source: group.source, html: engine.replaceHTML(group.source.html, group.matches, replacement.value, regexInput.checked) })).filter(change => change.html !== change.source.html);
     try {
-      if (!changes.length) { message.textContent = '置換前後の文字が同じため、変更はありません。'; return; }
-      const size = adapter.collect().sources.reduce((total, source) => total + source.html.length, 0) + changes.reduce((total, change) => total + change.html.length - change.source.html.length, 0);
+      const groups = Array.from(grouped.values());
+      const size = adapter.collect().sources.reduce((total, source) => total + source.html.length, 0)
+        + groups.reduce((total, group) => total + engine.measureReplacementHTML(group.source.html, group.matches, replacement.value, regexInput.checked) - group.source.html.length, 0);
       if (size > 2000000) throw new Error('置換後の本文が上限の200万文字を超えます。置換する文字を短くしてください。');
+      const changes = groups.map(group => ({ source: group.source, html: engine.replaceHTML(group.source.html, group.matches, replacement.value, regexInput.checked) })).filter(change => change.html !== change.source.html);
+      if (!changes.length) { message.textContent = '置換前後の文字が同じため、変更はありません。'; return; }
       clearHighlights(); adapter.apply(changes); await refresh(true, true);
       if (!state.error) message.textContent = `${selected.length}箇所を置換しました。編集内容を確認して保存してください。`;
     } catch (error) { await refresh(true); message.textContent = error.message; }

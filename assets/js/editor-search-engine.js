@@ -88,30 +88,60 @@
   function scanHTML(html, needle, caseSensitive, shortcodes = []) {
     const runs = htmlRuns(html, shortcodes); return attachRanges(runs, find(runs, needle, caseSensitive));
   }
-  function expandReplacement(replacement, match) {
-    return replacement.replace(/\$(\$|&|0|[1-9][0-9]?|<[^>]+>)/g, (token, key) => {
-      if (key === '$') return '$';
-      if (key === '&' || key === '0') return match.text;
-      if (key[0] === '<') {
-        const name = key.slice(1, -1);
-        return match.groups && Object.prototype.hasOwnProperty.call(match.groups, name) ? match.groups[name] || '' : token;
-      }
-      const number = Number(key), captures = match.captures || [];
-      if (number <= captures.length) return captures[number - 1] || '';
-      if (key.length === 2 && Number(key[0]) <= captures.length) return (captures[Number(key[0]) - 1] || '') + key[1];
-      return token;
-    });
+  function replacementParts(replacement, match) {
+    const parts = []; let cursor = 0;
+    for (const hit of replacement.matchAll(/\$(\$|&|0|[1-9][0-9]?|<[^>]+>)/g)) {
+      parts.push(replacement.slice(cursor, hit.index));
+      const token = hit[0], key = hit[1], captures = match.captures || [];
+      let value = token;
+      if (key === '$') value = '$';
+      else if (key === '&' || key === '0') value = match.text;
+      else if (key[0] === '<') { const name = key.slice(1, -1); if (match.groups && Object.prototype.hasOwnProperty.call(match.groups, name)) value = match.groups[name] || ''; }
+      else if (Number(key) <= captures.length) value = captures[Number(key) - 1] || '';
+      else if (key.length === 2 && Number(key[0]) <= captures.length) value = (captures[Number(key[0]) - 1] || '') + key[1];
+      parts.push(value); cursor = hit.index + token.length;
+    }
+    parts.push(replacement.slice(cursor)); return parts;
   }
-  function replaceHTML(html, matches, replacement, regularExpression = false) {
-    const changes = [];
-    for (const match of matches) {
-      const text = regularExpression ? expandReplacement(replacement, match) : replacement;
-      match.ranges.forEach((range, index) => changes.push({ start: range[0], end: range[1], text: index === 0 ? escapeHTML(text.replace(/\r\n/g, '\n')).replace(/\n/g, '<br>') : '' }));
+  function prepareReplacementHTML(html, matches, replacement, regularExpression, maxOutput = 2000000) {
+    const fail = () => { throw new Error('置換後の本文が上限の200万文字を超えます。置換する文字を短くしてください。'); };
+    if (html.length > maxOutput || replacement.length > 10000) fail();
+    const changes = [], measured = new Map(); let length = html.length, work = 0;
+    for (const match of matches) match.ranges.forEach((range, index) => {
+      changes.push({ start: range[0], end: range[1], match: index === 0 ? match : null }); length -= range[1] - range[0];
+    });
+    const partsFor = change => !change.match ? [] : regularExpression ? replacementParts(replacement, change.match) : [replacement];
+    for (const change of changes) for (const part of partsFor(change)) {
+      if (++work > 200000) throw new Error('置換の展開が複雑なため中止しました。置換する文字を短くしてください。');
+      let size = measured.get(part);
+      if (size === undefined) {
+        size = 0;
+        for (let i = 0; i < part.length; i++) {
+          const ch = part[i];
+          if (ch === '\r' && part[i + 1] === '\n') { size += 4; i++; }
+          else size += ch === '&' ? 5 : ch === '<' || ch === '>' || ch === '\n' ? 4 : 1;
+          if (size > maxOutput) fail();
+        }
+        measured.set(part, size);
+      }
+      length += size; if (length > maxOutput) fail();
     }
     changes.sort((a, b) => a.start - b.start);
-    const result = []; let cursor = 0;
-    for (const change of changes) { result.push(html.slice(cursor, change.start), change.text); cursor = change.end; }
-    result.push(html.slice(cursor)); return result.join('');
+    return { length, render() {
+      const result = []; let cursor = 0;
+      for (const change of changes) {
+        if (change.start > cursor) result.push(html.slice(cursor, change.start));
+        for (const part of partsFor(change)) if (part) result.push(escapeHTML(part.replace(/\r\n/g, '\n')).replace(/\n/g, '<br>'));
+        cursor = change.end;
+      }
+      result.push(html.slice(cursor)); return result.join('');
+    } };
+  }
+  function measureReplacementHTML(html, matches, replacement, regularExpression = false) {
+    return prepareReplacementHTML(html, matches, replacement, regularExpression).length;
+  }
+  function replaceHTML(html, matches, replacement, regularExpression = false) {
+    return prepareReplacementHTML(html, matches, replacement, regularExpression).render();
   }
   function domRuns(root) {
     if (!root) return [];
@@ -152,5 +182,5 @@
     if (!root) return [];
     return rangesFromDOMMatches(root, domRuns(root), matches);
   }
-  window.WPHMEditorSearchEngine = { scanHTML, replaceHTML, domRanges, htmlRuns, attachRanges, domRangesForMatches };
+  window.WPHMEditorSearchEngine = { scanHTML, replaceHTML, measureReplacementHTML, domRanges, htmlRuns, attachRanges, domRangesForMatches };
 })();

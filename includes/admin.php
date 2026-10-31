@@ -320,6 +320,10 @@ function wphm_is_plugin_admin_page(): bool {
 add_action('admin_enqueue_scripts', 'wphm_enqueue_admin_assets');
 function wphm_enqueue_admin_assets(): void {
     if (!wphm_is_plugin_admin_page()) return;
+    if (($_GET['page'] ?? '') === 'wphm-qr' && wphm_is_tool_enabled('qr') && current_user_can('manage_options')) {
+        wp_enqueue_script('wphm-qrcodegen', WPHM_PLUGIN_URL . 'assets/vendor/qrcodegen.js', [], WPHM_VERSION, true);
+        wp_enqueue_script('wphm-qr', WPHM_PLUGIN_URL . 'assets/js/qr.js', ['wphm-qrcodegen'], WPHM_VERSION, true);
+    }
 
     $css_path = WPHM_PLUGIN_DIR . 'assets/css/admin-modern.css';
     $js_path = WPHM_PLUGIN_DIR . 'assets/js/admin-dashboard.js';

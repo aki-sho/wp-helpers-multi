@@ -134,7 +134,7 @@ function wphm_comment_manager_excerpt(string $text, int $length = 80): string {
     return substr($text, 0, $length) . '...';
 }
 
-function wphm_comment_manager_apply_bulk_action(string $action, array $ids): int {
+function wphm_comment_manager_apply_bulk_action(string $action, array $ids, int $duration = 86400): int {
     $done = 0;
 
     foreach ($ids as $id) {
@@ -158,10 +158,11 @@ function wphm_comment_manager_apply_bulk_action(string $action, array $ids): int
                 break;
 
             case 'spam':
+            case 'spam_block':
                 if (wp_spam_comment($comment_id)) {
                     $comment_ip = (string)($comment->comment_author_IP ?? '');
-                    if (function_exists('wphm_ip_blocklist_block')) {
-                        wphm_ip_blocklist_block($comment_ip, 'comment_spam', $comment_id);
+                    if ($action === 'spam_block' && function_exists('wphm_ip_blocklist_block')) {
+                        wphm_ip_blocklist_block($comment_ip, 'comment_spam', $comment_id, $duration);
                     }
                     $done++;
                 }

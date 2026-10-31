@@ -29,7 +29,7 @@ function wphm_access_log_handle_request(): void {
         if (isset($_POST['wphm_access_log_block_ip'])) {
             $target_ip = sanitize_text_field((string)$_POST['wphm_access_log_block_ip']);
             $blocked = function_exists('wphm_ip_blocklist_block')
-                && wphm_ip_blocklist_block($target_ip, 'access_log');
+                && wphm_ip_blocklist_block($target_ip, 'access_log', 0, wphm_ip_blocklist_default_duration());
 
             $redirect_args['msg'] = $blocked ? 'ip_blocked' : 'ip_invalid';
             wp_safe_redirect(wphm_access_log_admin_url($redirect_args));
@@ -47,6 +47,19 @@ function wphm_access_log_handle_request(): void {
         }
 
         $action = sanitize_text_field((string)$_POST['wphm_access_log_action']);
+
+        if ($action === 'save_limits') {
+            $posted = isset($_POST['limits']) && is_array($_POST['limits']) ? $_POST['limits'] : [];
+            $clean = [];
+            foreach (['days', 'rows', 'per_minute', 'per_ip_minute'] as $key) {
+                if (isset($posted[$key]) && is_scalar($posted[$key])) $clean[$key] = (int)$posted[$key];
+            }
+            update_option('wphm_access_log_limits', $clean, false);
+            wp_clear_scheduled_hook('wphm_access_log_maintenance');
+            wphm_access_log_schedule_maintenance();
+            wp_safe_redirect(wphm_access_log_admin_url(['msg' => 'limits_saved']));
+            exit;
+        }
 
         if ($action === 'delete_selected') {
             $ids = isset($_POST['ids']) ? (array)$_POST['ids'] : [];

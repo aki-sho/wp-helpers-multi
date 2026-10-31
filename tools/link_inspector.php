@@ -3,6 +3,7 @@
  * tools/link_inspector.php（完成版・これに丸ごと差し替え）
  * ========================= */
 if (!defined('ABSPATH')) exit;
+require_once __DIR__ . '/link_inspector_http.php';
 
 const WPHM_LI_OPT_SETTINGS = 'wphm_link_inspector_settings';
 const WPHM_LI_OPT_STATE    = 'wphm_link_inspector_state';
@@ -38,7 +39,7 @@ function wphm_li_get_settings(): array {
     $s['batch_size']  = max(5, min(100, (int)($s['batch_size'] ?? 20)));
     $s['timeout']     = max(3, min(30, (int)($s['timeout'] ?? 8)));
     $s['max_results'] = max(100, min(50000, (int)($s['max_results'] ?? 5000)));
-    $s['max_queue']   = max(100, min(200000, (int)($s['max_queue'] ?? 20000)));
+    $s['max_queue']   = max(100, min(WPHM_LI_MAX_LOCS, (int)($s['max_queue'] ?? 20000)));
 
     if (!in_array($s['typo_level'], ['weak','medium','high'], true)) $s['typo_level'] = 'weak';
     $s['target_host'] = strtolower(trim((string)($s['target_host'] ?? '')));
@@ -119,7 +120,7 @@ function wphm_render_link_inspector_tool_page() {
         echo '<h1>リンク点検</h1>';
     }
 
-    if (!empty($_GET['started'])) echo '<div class="notice notice-success"><p>スキャンを開始しました。</p></div>';
+    if (!empty($_GET['started']) && empty($state['last_error'])) echo '<div class="notice notice-success"><p>スキャンを開始しました。</p></div>';
     if (!empty($_GET['stepped'])) echo '<div class="notice notice-info"><p>バッチ処理を実行しました。</p></div>';
     if (!empty($_GET['reset']))   echo '<div class="notice notice-warning"><p>状態をリセットしました。</p></div>';
 
@@ -279,7 +280,7 @@ function wphm_li_do_start(): void {
         'done'        => empty($queue),
         'started_at'  => time(),
         'last_step_at'=> 0,
-        'last_error'  => '',
+        'last_error'  => (string)($GLOBALS['wphm_li_fetch_error'] ?? ''),
     ]);
 }
 
@@ -343,10 +344,13 @@ function wphm_li_do_step(): void {
  * Sitemap queue
  * ========================= */
 function wphm_li_build_queue_from_sitemap(string $sitemap_url, int $timeout = 8, int $max_queue = 20000): array {
+    $GLOBALS['wphm_li_fetch_error'] = '';
+    $budget = ['started' => microtime(true), 'requests' => 0];
+    $max_queue = max(1, min(WPHM_LI_MAX_LOCS, $max_queue));
     $sitemap_url = esc_url_raw($sitemap_url);
     if (!$sitemap_url) return [];
 
-    $xml = wphm_li_fetch_body($sitemap_url, $timeout);
+    $xml = wphm_li_fetch_body($sitemap_url, $timeout, $budget);
     if ($xml === '') return [];
 
     $is_index = wphm_li_sitemap_is_index($xml);
@@ -360,10 +364,13 @@ function wphm_li_build_queue_from_sitemap(string $sitemap_url, int $timeout = 8,
     $child_sitemaps = wphm_li_parse_sitemap_xml($xml);
     $all = [];
 
-    foreach ($child_sitemaps as $child) {
+    foreach (array_unique($child_sitemaps) as $child) {
         if (count($all) >= $max_queue) break;
+        if ($budget['requests'] >= WPHM_LI_MAX_FETCHES || microtime(true) - $budget['started'] >= WPHM_LI_MAX_SECONDS) {
+            $GLOBALS['wphm_li_fetch_error'] = 'サイトマップ取得の時間・回数上限に達しました。取得済みの範囲を点検します。'; break;
+        }
 
-        $child_xml = wphm_li_fetch_body((string)$child, $timeout);
+        $child_xml = wphm_li_fetch_body((string)$child, $timeout, $budget);
         if ($child_xml === '') continue;
 
         $child_urls = wphm_li_parse_sitemap_xml($child_xml);
@@ -395,28 +402,27 @@ function wphm_li_normalize_urls(array $urls, int $max_queue): array {
     return $out;
 }
 
-function wphm_li_fetch_body(string $url, int $timeout): string {
-    $res = wp_remote_get($url, ['timeout' => $timeout]);
-    if (is_wp_error($res)) return '';
-    if (wp_remote_retrieve_response_code($res) !== 200) return '';
-    $body = (string)wp_remote_retrieve_body($res);
-    return $body ?: '';
-}
-
 function wphm_li_sitemap_is_index(string $xml): bool {
     return (stripos($xml, '<sitemapindex') !== false);
 }
 
 function wphm_li_parse_sitemap_xml(string $xml): array {
+    if (trim($xml) === '' || strlen($xml) > WPHM_LI_MAX_BODY || preg_match('/<!\s*(?:DOCTYPE|ENTITY)\b/i', $xml)) {
+        $GLOBALS['wphm_li_fetch_error'] = 'サイトマップのサイズまたはXML形式が安全基準を満たしていません。'; return [];
+    }
     $prev = libxml_use_internal_errors(true);
     $dom  = new DOMDocument();
     $ok   = $dom->loadXML($xml, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+    libxml_clear_errors();
     libxml_use_internal_errors($prev);
-    if (!$ok) return [];
+    if (!$ok || !$dom->documentElement || !in_array($dom->documentElement->localName, ['urlset', 'sitemapindex'], true)) {
+        $GLOBALS['wphm_li_fetch_error'] = 'サイトマップXMLを解析できませんでした。'; return [];
+    }
 
     $locs = $dom->getElementsByTagName('loc');
     $out = [];
     foreach ($locs as $loc) {
+        if (count($out) >= WPHM_LI_MAX_LOCS) { $GLOBALS['wphm_li_fetch_error'] = 'サイトマップのURL件数上限に達しました。'; break; }
         $u = trim((string)$loc->textContent);
         if ($u !== '') $out[] = $u;
     }

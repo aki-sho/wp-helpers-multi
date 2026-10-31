@@ -24,6 +24,19 @@ function wphm_bcrypt_request_text(string $key): string {
     return isset($_POST[$key]) && is_string($_POST[$key]) ? wp_unslash($_POST[$key]) : '';
 }
 
+function wphm_bcrypt_password_error(string $password): string {
+    if ($password === '') return 'パスワード（平文）を入力してください。';
+    if (strlen($password) > 72) return 'bcryptで扱える平文は72バイト以内です。日本語などは1文字が複数バイトになります。';
+    if (strpos($password, "\0") !== false) return '平文に使用できない制御文字が含まれています。';
+    return '';
+}
+
+function wphm_bcrypt_hash_error(string $hash): string {
+    if (strlen($hash) !== 60 || !preg_match('/^\$2[aby]\$(0[4-9]|[12][0-9]|3[01])\$[.\/A-Za-z0-9]{53}$/D', $hash, $match)) return 'bcrypt形式のハッシュ（60文字）を入力してください。';
+    if ((int)$match[1] > 12) return '処理負荷を抑えるため、検証できるbcryptのcostは12以下です。';
+    return '';
+}
+
 function wphm_render_bcrypt_tool_page() {
     if (!current_user_can('manage_options')) {
         wp_die('権限がありません。');
@@ -48,6 +61,7 @@ function wphm_render_bcrypt_tool_page() {
     $in_cost = 10;
     $in_plain_for_verify = '';
     $in_hash_for_verify = '';
+    $test_mode = false;
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // nonce
@@ -62,17 +76,16 @@ function wphm_render_bcrypt_tool_page() {
             $in_password = wphm_bcrypt_request_text('password');
             $in_cost = isset($_POST['cost']) ? (int) $_POST['cost'] : 10;
 
-            // cost は一般に 4〜15 くらいで十分（上げすぎると管理画面で重くなる）
-            if ($in_cost < 4) $in_cost = 4;
-            if ($in_cost > 15) $in_cost = 15;
+            // Low cost is available only after explicitly selecting the test mode.
+            $test_mode = wphm_bcrypt_request_text('test_mode') === '1';
+            $in_cost = max($test_mode ? 4 : 10, min(12, $in_cost));
 
-            if ($in_password === '') {
-                $message = 'パスワード（平文）を入力してください。';
-            } else {
-                $result_hash = password_hash($in_password, PASSWORD_BCRYPT, ['cost' => $in_cost]);
-                if (!$result_hash) {
-                    $message = 'ハッシュ生成に失敗しました。';
-                }
+            $message = wphm_bcrypt_password_error($in_password);
+            if ($message === '') {
+                try {
+                    $result_hash = password_hash($in_password, PASSWORD_BCRYPT, ['cost' => $in_cost]);
+                    if (!$result_hash) $message = 'ハッシュ生成に失敗しました。';
+                } catch (Throwable $error) { $message = 'ハッシュ生成に失敗しました。入力と実行環境を確認してください。'; }
             }
 
         } elseif ($mode === 'verify') {
@@ -80,10 +93,11 @@ function wphm_render_bcrypt_tool_page() {
             $in_plain_for_verify = wphm_bcrypt_request_text('plain');
             $in_hash_for_verify  = wphm_bcrypt_request_text('hash');
 
-            if ($in_plain_for_verify === '' || $in_hash_for_verify === '') {
-                $message = '平文とハッシュの両方を入力してください。';
-            } else {
-                $verify_ok = password_verify($in_plain_for_verify, $in_hash_for_verify);
+            $message = wphm_bcrypt_password_error($in_plain_for_verify);
+            if ($message === '') $message = wphm_bcrypt_hash_error($in_hash_for_verify);
+            if ($message === '') {
+                try { $verify_ok = password_verify($in_plain_for_verify, $in_hash_for_verify); }
+                catch (Throwable $error) { $message = 'ハッシュの検証に失敗しました。入力を確認してください。'; }
             }
         }
     }
@@ -103,6 +117,7 @@ function wphm_render_bcrypt_tool_page() {
 
     // 注意文
     echo '<p style="margin:6px 0 14px;">管理画面ツールとして <code>bcrypt</code> のハッシュ生成・検証を行います。入力した平文は保存しません。</p>';
+    if ($test_mode) echo '<div class="notice notice-warning"><p>検証用途モードです。costが10未満のハッシュを実際の認証に使用しないでください。</p></div>';
 
     // メッセージ表示（エラー等）
     if ($message !== '') {
@@ -147,10 +162,11 @@ function wphm_render_bcrypt_tool_page() {
     echo '<label class="wphm-label">Cost（強度）</label>';
     echo '<div class="wphm-field">';
     echo '<div class="wphm-inline">';
-    echo '<input type="range" id="wphm_bcrypt_cost" name="cost" min="4" max="15" value="' . (int)$in_cost . '">';
+    echo '<input type="range" id="wphm_bcrypt_cost" name="cost" min="' . ($test_mode ? 4 : 10) . '" max="12" value="' . (int)$in_cost . '">';
     echo '<span id="wphm_bcrypt_cost_val" style="min-width:40px; display:inline-block;">' . (int)$in_cost . '</span>';
     echo '</div>';
-    echo '<p class="description">一般用途なら 10〜12 目安。上げすぎると処理が重くなります。</p>';
+    echo '<p class="description">通常はcost 10〜12です。平文は72バイト以内、検証用ハッシュはcost 12以下に対応します。</p>';
+    echo '<label><input type="checkbox" id="wphm_bcrypt_test_mode" name="test_mode" value="1" ' . checked($test_mode, true, false) . '> 検証用途として低cost（4〜9）を許可する</label>';
     echo '</div>';
     echo '</div>';
 
@@ -259,6 +275,8 @@ function wphm_render_bcrypt_tool_page() {
         const toggle = document.getElementById("wphm_bcrypt_toggle_pw");
         const range = document.getElementById("wphm_bcrypt_cost");
         const rangeVal = document.getElementById("wphm_bcrypt_cost_val");
+        const testMode = document.getElementById("wphm_bcrypt_test_mode");
+        if (testMode && range) testMode.addEventListener("change", function(){ range.min = testMode.checked ? "4" : "10"; if (Number(range.value) < Number(range.min)) range.value = range.min; if (rangeVal) rangeVal.textContent = range.value; });
 
         const out = document.getElementById("wphm_bcrypt_hash_out");
         const copyBtn = document.getElementById("wphm_bcrypt_copy_hash");

@@ -52,7 +52,10 @@ function wp_safe_redirect($url) { throw new MaintenanceRedirect($url); }
 function add_menu_page(...$args) { return 'wphm-main'; }
 function add_submenu_page(...$args) { return 'wphm-page-' . $args[4]; }
 class MaintenanceDatabase {
-    public $prefix = 'test_'; public $rows = [];
+    public $prefix = 'test_'; public $options = 'test_options'; public $rows = []; public $rows_affected = 0;
+    public function prepare($query, ...$args) { return $query; }
+    public function query($query) { return 1; }
+    public function get_var($query) { if (strpos($query, 'GET_LOCK') !== false) return '1'; return null; }
     public function insert($table, $data, $formats) { $this->rows[] = $data; return 1; }
 }
 $GLOBALS['zone'] = 'Asia/Tokyo'; $GLOBALS['hooks'] = []; $GLOBALS['cache'] = []; $GLOBALS['requests'] = 0; $GLOBALS['is_admin'] = false;

@@ -10,6 +10,7 @@ if (!defined('ABSPATH')) exit;
 define('WPHM_ACCESS_LOG_DB_VERSION', '1.1.0');
 
 require_once __DIR__ . '/schema/table.php';
+require_once __DIR__ . '/app/security.php';
 require_once __DIR__ . '/app/repository.php';
 require_once __DIR__ . '/app/service.php';
 require_once __DIR__ . '/app/ajax.php';
@@ -20,6 +21,8 @@ require_once __DIR__ . '/admin/admin.php';
  * - option を見て必要なときだけ dbDelta
  */
 add_action('init', 'wphm_access_log_maybe_update_schema', 1);
+add_action('init', 'wphm_access_log_schedule_maintenance', 2);
+add_action('wphm_access_log_maintenance', 'wphm_access_log_maintenance');
 function wphm_access_log_maybe_update_schema(): void {
     // なるべく軽く：version一致なら即return
     $cur = get_option('wphm_access_log_db_version');
@@ -44,6 +47,7 @@ function wphm_access_log_record_front(): void {
 
     $row = wphm_access_log_build_row();
     if (!$row) return;
+    if (!wphm_access_log_take_budget((string)$row['ip'])) return;
 
     // Capture request details now; redirects, wp_die() and the template may still change the status.
     if (!isset($GLOBALS['wphm_access_log_pending_row'])) {

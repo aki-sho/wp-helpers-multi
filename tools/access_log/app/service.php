@@ -57,7 +57,7 @@ function wphm_access_log_build_row(): ?array {
 
     $user_id = get_current_user_id();
 
-    return [
+    return wphm_access_log_protect_row([
         'created_at' => time(),
         'method'     => $method,
         'status'     => wphm_access_log_response_status(),
@@ -67,7 +67,7 @@ function wphm_access_log_build_row(): ?array {
         'ip'         => $ip,
         'user_id'    => (int)$user_id,
         'user_agent' => $ua,
-    ];
+    ]);
 }
 
 /**

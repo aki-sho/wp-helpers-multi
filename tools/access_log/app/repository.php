@@ -6,22 +6,35 @@ function wphm_access_log_repo_insert(array $row): void {
 
     $table = wphm_access_log_table_name();
 
-    // 念のため型を揃える
-    $data = [
-        'created_at'  => (int)($row['created_at'] ?? time()),
-        'method'      => (string)($row['method'] ?? ''),
-        'status'      => (int)($row['status'] ?? 0),
-        'url'         => (string)($row['url'] ?? ''),
-        'path'        => (string)($row['path'] ?? ''),
-        'referrer'    => (string)($row['referrer'] ?? ''),
-        'ip'          => (string)($row['ip'] ?? ''),
-        'user_id'     => (int)($row['user_id'] ?? 0),
-        'user_agent'  => (string)($row['user_agent'] ?? ''),
-    ];
+    $row = wphm_access_log_protect_row($row);
+    $limits = wphm_access_log_limits();
+    $lock = wphm_access_log_lock_name();
+    if ((string)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 0)', $lock)) !== '1') return;
+    try {
+        $newest = (int)$wpdb->get_var("SELECT id FROM {$table} ORDER BY id DESC LIMIT 1");
+        $edge = max(0, $newest - $limits['rows'] + 1);
+        $wpdb->query($wpdb->prepare("DELETE FROM {$table} WHERE id <= %d LIMIT 1000", $edge));
+        if ($wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE id <= %d LIMIT 1", $edge))) return;
 
-    $wpdb->insert($table, $data, [
-        '%d','%s','%d','%s','%s','%s','%s','%d','%s'
-    ]);
+        // 念のため型を揃える
+        $data = [
+            'created_at'  => (int)($row['created_at'] ?? time()),
+            'method'      => (string)($row['method'] ?? ''),
+            'status'      => (int)($row['status'] ?? 0),
+            'url'         => (string)($row['url'] ?? ''),
+            'path'        => (string)($row['path'] ?? ''),
+            'referrer'    => (string)($row['referrer'] ?? ''),
+            'ip'          => (string)($row['ip'] ?? ''),
+            'user_id'     => (int)($row['user_id'] ?? 0),
+            'user_agent'  => (string)($row['user_agent'] ?? ''),
+        ];
+
+        $wpdb->insert($table, $data, [
+            '%d','%s','%d','%s','%s','%s','%s','%d','%s'
+        ]);
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+    }
 }
 
 /**
@@ -81,6 +94,7 @@ function wphm_access_log_repo_get(array $args): array {
     $params_items[] = $offset;
 
     $items = (array)$wpdb->get_results($wpdb->prepare($sql_items, $params_items), ARRAY_A);
+    $items = array_map('wphm_access_log_protect_row', $items);
 
     return [
         'items'    => $items,

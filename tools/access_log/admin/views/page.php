@@ -28,7 +28,10 @@ if ($msg === 'purged')   echo '<div class="notice notice-success"><p>古いロ�
 if ($msg === 'truncated')echo '<div class="notice notice-success"><p>全ログを削除しました。</p></div>';
 if ($msg === 'ip_blocked') echo '<div class="notice notice-success"><p>IPアドレスを拒否リストへ登録しました。</p></div>';
 if ($msg === 'ip_unblocked') echo '<div class="notice notice-success"><p>IPアドレスの拒否を解除しました。</p></div>';
-if ($msg === 'ip_invalid') echo '<div class="notice notice-error"><p>IPアドレスを処理できませんでした。</p></div>';
+if ($msg === 'ip_invalid') echo '<div class="notice notice-error"><p>IPアドレスを処理できませんでした。許可リスト・操作中の自分のIPも確認してください。</p></div>';
+if ($msg === 'limits_saved') echo '<div class="notice notice-success"><p>ログの記録制限を保存しました。</p></div>';
+wphm_access_log_render_limits();
+wphm_ip_blocklist_render_settings('wphm-access-log');
 
 ?>
 

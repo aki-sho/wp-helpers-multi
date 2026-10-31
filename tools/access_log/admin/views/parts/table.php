@@ -54,6 +54,7 @@ $spam_comment_counts = $data['spam_comment_counts'] ?? [];
               —
             <?php elseif ($ip_blocked): ?>
               <div class="wphm-accesslog-blocked">拒否中</div>
+              <small><?php echo !empty($blocked_ips[$normalized_ip]['expires_at']) ? esc_html(wphm_format_timestamp(strtotime($blocked_ips[$normalized_ip]['expires_at'] . ' UTC'))) . ' まで' : '期限なし（旧設定）'; ?></small>
               <button class="button button-small wphm-accesslog-ip-action" type="submit"
                 name="wphm_access_log_unblock_ip" value="<?php echo esc_attr($normalized_ip); ?>"
                 onclick="return confirm('IPアドレス <?php echo esc_js($normalized_ip); ?> の拒否を解除しますか？');">
@@ -64,7 +65,7 @@ $spam_comment_counts = $data['spam_comment_counts'] ?? [];
               <button class="button button-small wphm-accesslog-ip-action" type="submit"
                 name="wphm_access_log_block_ip" value="<?php echo esc_attr($normalized_ip); ?>"
                 onclick="return confirm('IPアドレス <?php echo esc_js($normalized_ip); ?> を拒否しますか？');">
-                IP拒否
+                IP拒否（<?php echo (int)(wphm_ip_blocklist_default_duration() / 3600); ?>時間）
               </button>
             <?php endif; ?>
           </td>

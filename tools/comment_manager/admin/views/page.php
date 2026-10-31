@@ -140,6 +140,7 @@ foreach ($status_options as $key => $label) {
     </div>
 </form>
 
+<?php wphm_ip_blocklist_render_settings('wphm-comment-manager'); ?>
 <form method="post" action="<?php echo esc_url(wphm_comment_manager_admin_url([
     'status' => $status,
     's' => $search,
@@ -155,7 +156,8 @@ foreach ($status_options as $key => $label) {
     <div class="wphm-comment-bulk">
         <button class="button" type="submit" name="wphm_comment_manager_action" value="approve">選択承認</button>
         <button class="button" type="submit" name="wphm_comment_manager_action" value="unapprove">選択承認待ち</button>
-        <button class="button" type="submit" name="wphm_comment_manager_action" value="spam" onclick="return confirm('選択したコメントをスパムにし、そのIPアドレスを拒否します。よろしいですか？');">選択スパム＋IP拒否</button>
+        <button class="button" type="submit" name="wphm_comment_manager_action" value="spam">選択スパム（IP拒否なし）</button>
+        <button class="button" type="submit" name="wphm_comment_manager_action" value="spam_block">スパム＋IP拒否を確認</button>
         <button class="button" type="submit" name="wphm_comment_manager_action" value="trash" onclick="return confirm('選択したコメントをゴミ箱に移動します。よろしいですか？');">選択ゴミ箱</button>
         <button class="button wphm-comment-danger" type="submit" name="wphm_comment_manager_action" value="delete" onclick="return confirm('選択したコメントを完全削除します。よろしいですか？');">選択完全削除</button>
     </div>

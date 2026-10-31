@@ -1,5 +1,6 @@
 <?php
 if (!defined('ABSPATH')) exit;
+require_once __DIR__ . '/block_review.php';
 
 function wphm_comment_manager_handle_request(): void {
     if (!current_user_can('manage_options')) wp_die('権限がありません。', '', ['response' => 403]);
@@ -11,11 +12,23 @@ function wphm_comment_manager_handle_request(): void {
 
         $action = sanitize_text_field((string)$_POST['wphm_comment_manager_action']);
         $ids = isset($_POST['ids']) ? array_map('intval', (array)$_POST['ids']) : [];
+        $ids = array_slice(array_values(array_unique($ids)), 0, 200);
+        $duration = DAY_IN_SECONDS;
+        if ($action === 'spam_block') {
+            wphm_comment_manager_prepare_block($ids);
+            return;
+        }
+        if ($action === 'confirm_spam_block') {
+            $review = wphm_comment_manager_confirm_block();
+            $ids = array_keys($review['targets']);
+            $duration = $review['duration'];
+            $action = 'spam_block';
+        }
 
-        $allowed_actions = ['approve', 'unapprove', 'spam', 'trash', 'delete'];
+        $allowed_actions = ['approve', 'unapprove', 'spam', 'spam_block', 'trash', 'delete'];
 
         if (in_array($action, $allowed_actions, true) && !empty($ids)) {
-            $done = wphm_comment_manager_apply_bulk_action($action, $ids);
+            $done = wphm_comment_manager_apply_bulk_action($action, $ids, $duration);
 
             $redirect_args = [
                 'msg' => 'updated',
@@ -43,6 +56,10 @@ function wphm_comment_manager_handle_request(): void {
 
 function wphm_render_comment_manager_tool_page(): void {
     if (!current_user_can('manage_options')) return;
+    if (isset($GLOBALS['wphm_comment_block_review'])) {
+        wphm_comment_manager_render_block_review($GLOBALS['wphm_comment_block_review']);
+        return;
+    }
 
     $status  = isset($_GET['status']) ? wphm_comment_manager_normalize_status((string)$_GET['status']) : 'all';
     $search  = isset($_GET['s']) ? sanitize_text_field((string)$_GET['s']) : '';

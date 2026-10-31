@@ -1,10 +1,11 @@
 <?php
 if (!defined('ABSPATH')) exit;
+require_once __DIR__ . '/settings.php';
 
 /**
  * コメント管理とアクセスログで共有するIP拒否リスト。
  */
-define('WPHM_IP_BLOCKLIST_DB_VERSION', '1.0.0');
+define('WPHM_IP_BLOCKLIST_DB_VERSION', '1.1.0');
 
 function wphm_ip_blocklist_table_name(): string {
     global $wpdb;
@@ -25,6 +26,7 @@ function wphm_ip_blocklist_schema_ensure(): void {
         created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
         created_at DATETIME NOT NULL,
         updated_at DATETIME NOT NULL,
+        expires_at DATETIME NULL,
         PRIMARY KEY  (id),
         UNIQUE KEY ip (ip),
         KEY source (source),
@@ -56,11 +58,13 @@ function wphm_ip_blocklist_normalize_ip(string $ip): string {
     return $normalized !== false ? $normalized : $ip;
 }
 
-function wphm_ip_blocklist_block(string $ip, string $source = 'manual', int $source_id = 0): bool {
+function wphm_ip_blocklist_block(string $ip, string $source = 'manual', int $source_id = 0, int $duration = 86400): bool {
     global $wpdb;
 
     $ip = wphm_ip_blocklist_normalize_ip($ip);
     if ($ip === '') return false;
+    if (wphm_ip_blocklist_is_allowed($ip)) return false;
+    if (current_user_can('manage_options') && $ip === wphm_ip_blocklist_get_current_ip()) return false;
 
     $source = substr(sanitize_key($source), 0, 32);
     if ($source === '') $source = 'manual';
@@ -70,13 +74,14 @@ function wphm_ip_blocklist_block(string $ip, string $source = 'manual', int $sou
     $created_by = get_current_user_id();
 
     $sql = "INSERT INTO {$table}
-            (ip, source, source_id, created_by, created_at, updated_at)
-            VALUES (%s, %s, %d, %d, %s, %s)
+            (ip, source, source_id, created_by, created_at, updated_at, expires_at)
+            VALUES (%s, %s, %d, %d, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 source = VALUES(source),
                 source_id = VALUES(source_id),
                 created_by = VALUES(created_by),
-                updated_at = VALUES(updated_at)";
+                updated_at = VALUES(updated_at),
+                expires_at = VALUES(expires_at)";
 
     $result = $wpdb->query($wpdb->prepare(
         $sql,
@@ -85,7 +90,8 @@ function wphm_ip_blocklist_block(string $ip, string $source = 'manual', int $sou
         max(0, $source_id),
         max(0, (int)$created_by),
         $now,
-        $now
+        $now,
+        gmdate('Y-m-d H:i:s', time() + max(3600, min(30 * DAY_IN_SECONDS, $duration)))
     ));
 
     if ($result !== false) {
@@ -135,14 +141,14 @@ function wphm_ip_blocklist_get_entries(array $ips): array {
 
     foreach (array_chunk(array_keys($normalized), 200) as $chunk) {
         $placeholders = implode(',', array_fill(0, count($chunk), '%s'));
-        $sql = "SELECT ip, source, source_id, created_by, created_at, updated_at
+        $sql = "SELECT ip, source, source_id, created_by, created_at, updated_at, expires_at
                 FROM {$table}
-                WHERE ip IN ({$placeholders})";
+                WHERE ip IN ({$placeholders}) AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())";
         $rows = $wpdb->get_results($wpdb->prepare($sql, $chunk), ARRAY_A);
 
         foreach ((array)$rows as $row) {
             $ip = wphm_ip_blocklist_normalize_ip((string)($row['ip'] ?? ''));
-            if ($ip !== '') {
+            if ($ip !== '' && !wphm_ip_blocklist_is_allowed($ip)) {
                 $entries[$ip] = $row;
                 $GLOBALS['wphm_ip_blocklist_runtime_cache'][$ip] = true;
             }
@@ -155,6 +161,7 @@ function wphm_ip_blocklist_get_entries(array $ips): array {
 function wphm_ip_blocklist_is_blocked(string $ip): bool {
     $ip = wphm_ip_blocklist_normalize_ip($ip);
     if ($ip === '') return false;
+    if (wphm_ip_blocklist_is_allowed($ip)) return false;
 
     $cache = $GLOBALS['wphm_ip_blocklist_runtime_cache'] ?? [];
     if (array_key_exists($ip, $cache)) {
