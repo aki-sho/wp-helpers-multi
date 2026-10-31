@@ -1,6 +1,7 @@
 <?php
 /** Native WordPress/MariaDB regressions in a newly created, disposable database. */
 if (PHP_SAPI !== 'cli') exit;
+set_exception_handler(function (Throwable $error) { fwrite(STDERR, get_class($error) . ': ' . $error->getMessage() . PHP_EOL); exit(1); });
 $root = dirname(__DIR__);
 $core = $root . '/.wphm-test/wordpress/';
 $password = trim(file_get_contents($root . '/.wphm-test/db-password.txt'));
@@ -27,7 +28,7 @@ try {
     add_filter('flush_rewrite_rules_hard', '__return_false');
     $http = function ($pre, $args, $url) {
         $GLOBALS['inventory_http_calls'][] = ['url' => $url, 'args' => $args];
-        return ($GLOBALS['inventory_http_response'])($url);
+        return ($GLOBALS['inventory_http_response'])($url, $args);
     };
     $GLOBALS['inventory_http_response'] = function () { return new WP_Error('isolated', 'No external traffic'); };
     add_filter('pre_http_request', $http, 10, 3);
@@ -109,11 +110,11 @@ try {
     inventory_same($base . 'original/page/', wphm_su_rows('based/file.png')['rows'][0]['source_url'], 'actual discovery source retained with base href');
 
     $GLOBALS['inventory_http_calls'] = [];
-    $GLOBALS['inventory_http_response'] = function ($url) use ($base) {
-        $path = wp_parse_url($url, PHP_URL_PATH);
+    $GLOBALS['inventory_http_response'] = function ($url, $args) use ($base, $media) {
+        $path = rawurldecode(wp_parse_url($url, PHP_URL_PATH));
         $code = 200; $headers = ['content-type' => 'text/html'];
         $bodies = [
-            '/' => '<link href="/style.css" rel="stylesheet"><a href="/mystery/custom-endpoint/">Mystery</a><script src="/script.js"></script><a href="/jump/">Jump</a><img src="/media/root.webp"><img src="/wp-content/uploads/2026/11/crawled.jpg"><a href="https://external.invalid/out">External</a>',
+            '/' => '<link href="/style.css" rel="stylesheet"><a href="/mystery/custom-endpoint/">Mystery</a><script src="/script.js"></script><a href="/jump/">Jump</a><a href="/スクリーンショット-451/">Image redirect</a><a href="/chain-start/">Chain</a><a href="/not-image-redirect/">HTML</a><a href="/loop/">Loop</a><a href="/failed-image/">Failure</a><a href="/head-fallback/">Fallback</a><a href="/alias.png">Static alias</a><a href="/broken/">Missing page</a><a href="/?attachment_id=' . $media . '">Attachment</a><img src="/media/root.webp"><img src="/wp-content/uploads/2026/11/crawled.jpg"><a href="https://external.invalid/out">External</a>',
             '/mystery/custom-endpoint/' => '<a href="/only-by-crawling/resource.bin">Unknown file</a><a href="/unknown-kind/">Unknown kind</a><script type="application/ld+json">{"url":"/json-only/"}</script>',
             '/style.css' => 'body{background:url("/fonts/background.webp")} @import "/imported.css";',
             '/imported.css' => '@font-face{src:url(/fonts/site.woff2)}',
@@ -123,41 +124,66 @@ try {
         ];
         if ($path === '/jump/') { $code = 302; $headers['location'] = 'http://127.0.0.1/private'; }
         if ($path === '/upload-redirect/') { $code = 302; $headers['location'] = '/wp-content/uploads/2026/11/redirected.xml'; }
+        $redirects = ['/alias.png' => '/image-endpoint', '/スクリーンショット-451/' => '/wp-content/uploads/2024/10/1a02489a6c88a10f9bb5d4cb256f8b26.png', '/chain-start/' => '/chain-mid/', '/chain-mid/' => '/image-endpoint', '/not-image-redirect/' => '/fake.png', '/loop/' => '/loop/', '/failed-image/' => '/fail.png', '/head-fallback/' => '/no-head.png'];
+        if (isset($redirects[$path])) { $code = 301; $headers['location'] = $redirects[$path]; }
+        if (strpos($url, '?attachment_id=') !== false) { $code = 302; $headers['location'] = '/wp-content/uploads/2026/11/fixture.jpg'; }
+        if ($path === '/broken/') $code = 404;
+        if ($path === '/fail.png') return new WP_Error('fixture_failure', 'No response');
+        if (in_array($path, ['/image-endpoint', '/no-head.png', '/wp-content/uploads/2024/10/1a02489a6c88a10f9bb5d4cb256f8b26.png'], true)) $headers['content-type'] = 'image/png';
+        if ($path === '/wp-content/uploads/2026/11/fixture.jpg') $headers['content-type'] = 'image/jpeg';
+        if ($path === '/no-head.png') $code = ($args['method'] ?? '') === 'HEAD' ? 405 : 206;
         if (substr($path, -4) === '.xml') $headers['content-type'] = 'application/xml';
         if (substr($path, -4) === '.css') $headers['content-type'] = 'text/css';
         return ['response' => ['code' => $code], 'headers' => $headers, 'body' => $bodies[$path] ?? '<html><body></body></html>'];
     };
-    $excluded = wphm_su_start(true);
-    inventory_same(true, $excluded['filters']['exclude_uploads'], 'upload exclusion captured before collection');
-    inventory_same(true, (bool)get_option('wphm_site_urls_exclude_uploads'), 'last selected exclusion saved');
-    foreach (['/wp-content/uploads', '/wp-content/uploads/', '/wp-content/uploads/2026/11/a.jpg', '/wp-content/uploads/2026/file.pdf?version=2', '/wp-content/%75ploads/a.jpg', '/wp-content/uploads%2F2026/a.jpg', '/wp-content/other/../uploads/a.xml'] as $path) inventory_same(true, wphm_su_is_excluded($base . ltrim($path, '/'), $excluded), 'upload descendant excluded');
-    foreach (['/wp-content/uploads-old/a.jpg', '/another/wp-content/uploads/a.jpg', '/wp-content/uploads/../themes/a.css', '/media/a.jpg', get_permalink($media)] as $path) inventory_same(false, wphm_su_is_excluded(WP_Http::make_absolute_url($path, $base), $excluded), 'non-upload directory or attachment page retained');
+    update_option('wphm_site_urls_exclude_uploads', true, false);
+    inventory_same(true, wphm_su_filters()['uploads'], 'legacy upload preference migrated');
+    $excluded = wphm_su_start(['mode' => 'exclude', 'uploads' => true]);
+    inventory_same(true, wphm_su_filters()['uploads'], 'selection saved before collection');
+    foreach (['/wp-content/uploads', '/wp-content/uploads/', '/wp-content/uploads/2026/11/a.jpg', '/wp-content/uploads/2026/file.pdf?version=2', '/wp-content/%75ploads/a.jpg', '/wp-content/uploads%2F2026/a.jpg', '/wp-content/other/../uploads/a.xml'] as $path) inventory_same(true, wphm_su_is_upload($base . ltrim($path, '/')), 'upload descendant classified');
+    foreach (['/wp-content/uploads-old/a.jpg', '/another/wp-content/uploads/a.jpg', '/wp-content/uploads/../themes/a.css', '/media/a.jpg', get_permalink($media)] as $path) inventory_same(false, wphm_su_is_upload(WP_Http::make_absolute_url($path, $base)), 'other directories and attachment pages are separate groups');
+    inventory_same(true, wphm_su_is_attachment($base . '?attachment_id=' . $media), 'attachment_id group recognized');
+    inventory_same(true, wphm_su_is_attachment(get_permalink($media)), 'pretty attachment permalink recognized');
+    inventory_same(false, wphm_su_is_attachment($base . 'unknown/'), 'ordinary unknown URL not invented as attachment');
+    inventory_same(true, wphm_su_should_fetch($base . '?attachment_id=' . $media), 'read-only attachment query can be checked');
+    inventory_same(false, wphm_su_should_fetch($base . '?attachment_id=' . $media . '&action=delete'), 'attachment query cannot authorize an extra action');
     $before = $excluded['total'];
     wphm_su_add('/wp-content/uploads/2026/11/direct.pdf', $base, 'fixture', $excluded);
-    inventory_same($before, $excluded['total'], 'excluded URLs do not consume storage limit');
-    inventory_same(0, wphm_su_rows('direct.pdf')['total'], 'excluded URL never stored');
-    $home_row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . wphm_su_table() . ' WHERE url=%s', $base), ARRAY_A);
-    wphm_su_crawl($home_row, $excluded);
-    inventory_same(0, wphm_su_rows('crawled.jpg')['total'], 'HTML discovery uses exclusion');
-    wphm_su_extract('<img src="/wp-content/uploads/2026/11/body.jpg">', $base, '保存本文', $excluded, true);
-    inventory_same(0, wphm_su_rows('body.jpg')['total'], 'saved-body discovery uses exclusion');
-    wphm_su_add('/upload-redirect/', $base, 'fixture', $excluded);
-    $redirect_row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . wphm_su_table() . ' WHERE url=%s', $base . 'upload-redirect/'), ARRAY_A);
-    wphm_su_crawl($redirect_row, $excluded);
-    inventory_same(0, wphm_su_rows('redirected.xml')['total'], 'redirect target uses exclusion');
-    update_option('wphm_site_urls_state', $excluded, false);
-    update_option('wphm_site_urls_exclude_uploads', false, false);
-    $excluded = wphm_su_step($excluded['run']);
-    inventory_same(true, $excluded['filters']['exclude_uploads'], 'resume keeps the original exclusion after preference changes');
-    inventory_same(0, wphm_su_rows('wp-content/uploads/')['total'], 'attachment file excluded during database discovery');
-    $legacy = $excluded; unset($legacy['filters']);
-    inventory_same(false, wphm_su_is_excluded($base . 'wp-content/uploads/legacy.jpg', $legacy), 'legacy scans preserve previous behavior');
-    $state = wphm_su_start(); $run = $state['run'];
-    inventory_same(false, $state['filters']['exclude_uploads'], 'unchecked option includes uploads');
-    inventory_same(false, (bool)get_option('wphm_site_urls_exclude_uploads'), 'unchecked preference saved');
+    inventory_same($before + 1, $excluded['total'], 'candidate retained to permit instant reversible filtering');
+    inventory_same(0, wphm_su_rows('direct.pdf')['total'], 'upload excluded from results');
+    $state = wphm_su_start(['mode' => 'exclude']); $run = $state['run'];
     for ($i = 0; $i < 100 && $state['phase'] !== 'done'; $i++) $state = wphm_su_step($run);
-    inventory_same('done', $state['phase'], 'batched collection completes');
-    inventory_same(1, wphm_su_rows('crawled.jpg')['total'], 'uploads return when exclusion is unchecked');
+    inventory_same('done', $state['phase'], 'batched collection and redirect checks complete');
+    inventory_same(1, wphm_su_rows('crawled.jpg')['total'], 'uploads included without selection');
+    $row_for = function ($path) use ($wpdb, $base) { return $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . wphm_su_table() . ' WHERE url=%s', $base . ltrim($path, '/')), ARRAY_A); };
+    inventory_same('image', $row_for('/スクリーンショット-451/')['redirect_state'], 'reported Japanese-slug to PNG pattern identified by response headers');
+    inventory_same('image', $row_for('/chain-start/')['redirect_state'], 'multi-hop extensionless image identified');
+    inventory_same('image', $row_for('/alias.png')['redirect_state'], 'static file URL redirects also checked using HEAD');
+    inventory_same('other', $row_for('/not-image-redirect/')['redirect_state'], 'PNG filename with HTML response is not an image redirect');
+    inventory_same('unknown', $row_for('/loop/')['redirect_state'], 'redirect loop bounded and not guessed');
+    inventory_same('unknown', $row_for('/failed-image/')['redirect_state'], 'failed image target remains unverified');
+    inventory_same('image', $row_for('/head-fallback/')['redirect_state'], 'bounded GET fallback when HEAD unsupported');
+    $examples = ['uploads' => $base . 'wp-content/uploads/2026/11/crawled.jpg', 'attachments' => get_permalink($media), 'image_redirects' => $base . 'スクリーンショット-451/', 'ordinary' => $base . 'unusual/path/'];
+    foreach (['exclude', 'only'] as $mode) for ($mask = 0; $mask < 8; $mask++) {
+        $filters = ['mode' => $mode, 'uploads' => (bool)($mask & 1), 'attachments' => (bool)($mask & 2), 'image_redirects' => (bool)($mask & 4)];
+        $filtered = array_column(wphm_su_rows('', 1, 10000, 'url', 'ASC', $filters)['rows'], 'url');
+        foreach ($examples as $kind => $url) {
+            $matches = !empty($filters[$kind]);
+            inventory_same($mode === 'only' ? $matches : !$matches, in_array($url, $filtered, true), "{$mode} combination {$mask}: {$kind}");
+        }
+    }
+    $kept_count = (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table());
+    wphm_su_save_filters(['mode' => 'only', 'uploads' => true]);
+    inventory_same(1, wphm_su_rows('crawled.jpg')['total'], 'only upload group visible without a rescan');
+    inventory_same(0, wphm_su_rows('unusual/path')['total'], 'only mode hides other groups');
+    wphm_su_save_filters(['mode' => 'exclude', 'uploads' => true, 'attachments' => true, 'image_redirects' => true]);
+    foreach (['crawled.jpg', 'スクリーンショット-451/'] as $term) inventory_same(0, wphm_su_rows($term)['total'], 'selected group excluded immediately');
+    inventory_same(false, in_array($base . 'failed-image/', array_column(wphm_su_rows('', 1, 10000)['rows'], 'url'), true), 'unknown image redirect held rather than misclassified');
+    inventory_same(1, wphm_su_rows('unusual/path')['total'], 'ordinary confirmed URL retained with all groups excluded');
+    inventory_same(1, wphm_su_rows('/broken/')['total'], 'non-redirecting HTTP 404 remains visible when image redirects excluded');
+    inventory_same($kept_count, (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table()), 'filter changes do not erase candidates');
+    inventory_same($run, get_option('wphm_site_urls_state')['run'], 'filter changes do not create another scan');
+    wphm_su_save_filters(['mode' => 'exclude']);
     $result = wphm_su_rows('', 1, 10000); $urls = array_column($result['rows'], 'url');
     foreach (['unusual/path/', 'media/a.jpg', 'media/b-small.jpg', 'page-only-file.pdf', 'cpt-only.svg', 'mystery/custom-endpoint/', 'only-by-crawling/resource.bin', 'unknown-kind/', 'fonts/background.webp', 'fonts/site.woff2', 'json-only/', 'sitemap-only/opaque', 'script.js', 'wp-login.php', 'wp-admin/', 'menu-only-target/', 'block-menu-only/'] as $path) {
         if ($path === 'wp-admin/') { $copy = $state; wphm_su_add('/wp-admin/', $base, 'fixture', $copy); $urls = array_column(wphm_su_rows('', 1, 10000)['rows'], 'url'); }
@@ -170,7 +196,8 @@ try {
     $calls = array_column($GLOBALS['inventory_http_calls'], 'url');
     inventory_same(true, in_array(get_permalink($post), $calls, true), 'excluded post still crawled for discovery');
     inventory_same(false, in_array('http://127.0.0.1/private', $calls, true), 'redirect to private IP never requested');
-    inventory_same(false, in_array($base . 'script.js', $calls, true), 'scripts recorded without executing/fetching');
+    $script_gets = array_filter($GLOBALS['inventory_http_calls'], function ($call) use ($base) { return $call['url'] === $base . 'script.js' && $call['args']['method'] !== 'HEAD'; });
+    inventory_same(0, count($script_gets), 'scripts checked by headers without downloading or executing');
     inventory_same(false, in_array($base . 'wp-login.php', $calls, true), 'login recorded without fetching');
     $count = (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table());
     $copy = $state; wphm_su_add('/unusual/path/#another', $base, 'duplicate', $copy);
@@ -196,6 +223,24 @@ try {
     }
     inventory_same(['url', 'ASC'], wphm_su_sort_input(['orderby' => 'url; DROP TABLE x', 'order' => 'DESC; SELECT 1']), 'sort whitelist rejects SQL syntax');
     inventory_same('access_level', array_keys(wphm_su_columns())[5], 'access rights follow confirmation status');
+    $wpdb->query('UPDATE ' . wphm_su_table() . " SET classified=0,is_upload=0,is_attachment=0,redirect_state=''");
+    update_option('wphm_site_urls_db_version', '1.1.0', false);
+    inventory_same(true, wphm_su_schema(), 'v0.9.7 rows upgrade without deleting results');
+    inventory_same(true, wphm_su_response()['state']['needs_classification'], 'legacy rows request automatic classification');
+    $legacy_count = (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table() . ' WHERE classified=0');
+    $state = wphm_su_step($run);
+    inventory_same(max(0, $legacy_count - 20), (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table() . ' WHERE classified=0'), 'legacy classification processes at most 20 rows per batch');
+    for ($i = 0; $i < 100 && $state['phase'] !== 'done'; $i++) $state = wphm_su_step($run);
+    inventory_same(0, (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table() . ' WHERE classified=0'), 'all legacy rows classified in bounded batches');
+    inventory_same('image', $row_for('/スクリーンショット-451/')['redirect_state'], 'legacy image redirects automatically rechecked');
+    inventory_same('1', $row_for('/wp-content/uploads/2026/11/crawled.jpg')['is_upload'], 'legacy upload group restored');
+    $heads = array_filter($GLOBALS['inventory_http_calls'], function ($call) { return ($call['args']['method'] ?? '') === 'HEAD'; });
+    inventory_same(true, count($heads) > 0, 'image classification uses HEAD requests');
+    foreach ($heads as $call) {
+        inventory_same(0, $call['args']['redirection'], 'each redirect hop validated separately');
+        inventory_same(512, $call['args']['limit_response_size'], 'header probe has a response size cap');
+        inventory_same(true, !empty($call['args']['reject_unsafe_urls']), 'safe WordPress API used for HEAD');
+    }
     ob_start(); wphm_su_render_page(); $url_html = ob_get_clean();
     file_put_contents($root . '/.wphm-test/site-data-urls.html', $url_html);
     file_put_contents($root . '/.wphm-test/site-data-result.json', wp_json_encode(wphm_su_response()));
@@ -216,7 +261,19 @@ try {
     $ajax = function (array $input) { $_POST = $_REQUEST = $input; ob_start(); try { wphm_su_ajax(); } catch (RuntimeException $error) {} return json_decode(ob_get_clean(), true); };
     $nonce = wp_create_nonce('wphm_site_urls');
     inventory_same(true, $ajax(['nonce' => $nonce, 'op' => 'list'])['success'], 'authenticated AJAX list');
-    inventory_same(false, $ajax(['nonce' => $nonce, 'op' => 'start', 'exclude_uploads' => ['1']])['success'], 'malformed exclusion rejected');
+    $filter_request = ['nonce' => $nonce, 'op' => 'filters', 'mode' => 'only', 'uploads' => '1', 'attachments' => '0', 'image_redirects' => '0'];
+    $filtered_reply = $ajax($filter_request);
+    inventory_same(true, $filtered_reply['success'], 'authenticated automatic filter update');
+    inventory_same('only', $filtered_reply['data']['filters']['mode'], 'mode reflected in response');
+    inventory_same($run, get_option('wphm_site_urls_state')['run'], 'automatic update keeps current run');
+    foreach ($filtered_reply['data']['result']['rows'] as $row) inventory_same('1', $row['is_upload'], 'AJAX only-upload results contain uploads exclusively');
+    $invalid_filter = $filter_request; $invalid_filter['attachments'] = ['1'];
+    inventory_same(false, $ajax($invalid_filter)['success'], 'array filter value rejected');
+    $invalid_filter = $filter_request; $invalid_filter['mode'] = 'only OR 1=1';
+    inventory_same(false, $ajax($invalid_filter)['success'], 'invalid filter mode rejected');
+    inventory_same('only', wphm_su_filters()['mode'], 'invalid filter request cannot change saved selection');
+    wphm_su_save_filters(['mode' => 'exclude']);
+    inventory_same(false, $ajax(['nonce' => $nonce, 'op' => 'start', 'mode' => 'exclude', 'uploads' => ['1'], 'attachments' => '0', 'image_redirects' => '0'])['success'], 'malformed exclusion rejected');
     inventory_same($old_state, get_option('wphm_site_urls_state'), 'invalid exclusion does not delete prior results');
     inventory_same(false, $ajax(['nonce' => $nonce, 'op' => 'invalid'])['success'], 'invalid action rejected');
     inventory_same(false, $ajax(['nonce' => 'invalid', 'op' => 'start']) !== null, 'invalid nonce terminates before JSON result');
@@ -225,26 +282,29 @@ try {
     $tools['site_urls'] = true; update_option('wphm_tool_states', $tools);
     $subscriber = wp_create_user('inventorysubscriber', bin2hex(random_bytes(12)), 'inventory@example.invalid');
     wp_set_current_user($subscriber);
+    inventory_same(false, $ajax($filter_request)['success'], 'subscriber cannot alter filters');
     inventory_same(false, $ajax(['nonce' => $nonce, 'op' => 'start'])['success'], 'subscriber denied before mutation');
     inventory_same($old_state, get_option('wphm_site_urls_state'), 'denied actions do not reset results');
     wp_set_current_user((int)$installed['user_id']);
-    $to_clear = wphm_su_start(true);
+    $to_clear = wphm_su_start(['mode' => 'exclude', 'uploads' => true]);
     $reply = $ajax(['nonce' => $nonce, 'op' => 'clear', 'run' => $to_clear['run']]);
     inventory_same(true, $reply['data']['cleared'], 'leaving deletes current results');
     inventory_same(0, (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table()), 'URL table empty after departure');
     inventory_same(false, get_option('wphm_site_urls_state'), 'run state removed on departure');
-    inventory_same(true, (bool)get_option('wphm_site_urls_exclude_uploads'), 'departure retains exclusion preference');
-    $new_run = wphm_su_start(false);
+    inventory_same(true, wphm_su_filters()['uploads'], 'departure retains filter preference');
+    $new_run = wphm_su_start(['mode' => 'exclude']);
     inventory_same(false, $ajax(['nonce' => $nonce, 'op' => 'clear', 'run' => $to_clear['run']])['data']['cleared'], 'old tab cannot clear a new run');
     inventory_same($new_run['run'], get_option('wphm_site_urls_state')['run'], 'newer scan protected');
     $lock = 'wphm_su_' . substr(hash('sha256', DB_NAME . ':' . wphm_su_table()), 0, 40);
     $connection->query("SELECT GET_LOCK('{$lock}', 0)");
+    inventory_same(true, $ajax($filter_request)['success'], 'filter selection can save while a batch holds the scan lock');
+    inventory_same($new_run['run'], get_option('wphm_site_urls_state')['run'], 'live filter update cannot reset an active batch');
     $pending = $ajax(['nonce' => $nonce, 'op' => 'clear', 'run' => $new_run['run']]);
     inventory_same(true, $pending['data']['pending'], 'busy scan accepts deferred deletion');
     $connection->query("SELECT RELEASE_LOCK('{$lock}')");
     inventory_same([], wphm_su_step($new_run['run']), 'next batch honors deferred deletion');
     inventory_same(0, (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table()), 'deferred deletion removes all URLs');
-    $cross_request = wphm_su_start(false);
+    $cross_request = wphm_su_start(['mode' => 'exclude']);
     inventory_same(false, wphm_su_has_clear_request($cross_request['run']), 'missing clear request initially cached');
     $connection->select_db($database);
     $key = '_transient_wphm_su_clear_' . $cross_request['run'];

@@ -7,7 +7,7 @@ function wphm_su_table(): string {
 }
 
 function wphm_su_schema(): bool {
-    if (get_option('wphm_site_urls_db_version') === '1.1.0') return true;
+    if (get_option('wphm_site_urls_db_version') === '1.2.0') return true;
     global $wpdb;
     $table = wphm_su_table();
     $charset = $wpdb->get_charset_collate();
@@ -23,13 +23,24 @@ function wphm_su_schema(): bool {
         http_status smallint unsigned NOT NULL DEFAULT 0,
         note varchar(255) NOT NULL DEFAULT '',
         access_level varchar(24) NOT NULL DEFAULT 'unknown',
+        is_upload tinyint(1) NOT NULL DEFAULT 0,
+        is_attachment tinyint(1) NOT NULL DEFAULT 0,
+        classified tinyint(1) NOT NULL DEFAULT 0,
+        redirect_state varchar(16) NOT NULL DEFAULT '',
+        redirect_url text NOT NULL,
+        redirect_hops tinyint unsigned NOT NULL DEFAULT 0,
+        redirect_method varchar(4) NOT NULL DEFAULT 'HEAD',
         PRIMARY KEY  (id),
         UNIQUE KEY url_hash (url_hash),
         KEY crawl_state (crawl_state,id),
-        KEY is_article (is_article,id)
+        KEY is_article (is_article,id),
+        KEY classified (classified,id),
+        KEY redirect_state (redirect_state,id)
     ) {$charset};");
     if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) !== $table) return false;
-    update_option('wphm_site_urls_db_version', '1.1.0', false);
+    // Recheck legacy redirects in bounded background batches; do not block the schema upgrade.
+    $wpdb->query("UPDATE {$table} SET crawl_state = 'queued' WHERE classified = 0 AND http_status IN (301,302,303,307,308)");
+    update_option('wphm_site_urls_db_version', '1.2.0', false);
     return true;
 }
 
@@ -82,17 +93,17 @@ function wphm_su_confirmation(array $row): string {
     return $row['note'] ?: ($row['crawl_state'] === 'queued' ? '巡回待ち' : '取得済み');
 }
 
-function wphm_su_rows(string $search, int $page = 1, int $per_page = 100, string $orderby = 'url', string $order = 'ASC'): array {
+function wphm_su_rows(string $search, int $page = 1, int $per_page = 100, string $orderby = 'url', string $order = 'ASC', ?array $filters = null): array {
     global $wpdb;
     $table = wphm_su_table();
-    $where = 'is_article = 0'; $params = [];
+    $where = 'is_article = 0 AND (' . wphm_su_filter_where($filters) . ')'; $params = [];
     if ($search !== '') { $where .= ' AND (url LIKE %s OR source_url LIKE %s)'; $like = '%' . $wpdb->esc_like(substr($search, 0, 200)) . '%'; $params = [$like, $like]; }
     $sql = "SELECT COUNT(*) FROM {$table} WHERE {$where}";
     $total = (int)$wpdb->get_var($params ? $wpdb->prepare($sql, $params) : $sql);
     $per_page = max(1, min(WPHM_SU_MAX_URLS, $per_page));
     $pages = max(1, (int)ceil($total / $per_page)); $page = max(1, min($pages, $page));
     $args = array_merge($params, [$per_page, ($page - 1) * $per_page]);
-    $sorts = ['url' => 'url', 'source_url' => 'source_url', 'source_label' => 'source_label', 'http_status' => 'http_status', 'confirmation' => "CASE WHEN note <> '' THEN note WHEN crawl_state = 'queued' THEN '巡回待ち' ELSE '取得済み' END"];
+    $sorts = ['url' => 'BINARY url', 'source_url' => 'BINARY source_url', 'source_label' => 'source_label', 'http_status' => 'http_status', 'confirmation' => "CASE WHEN note <> '' THEN note WHEN crawl_state = 'queued' THEN '巡回待ち' ELSE '取得済み' END"];
     $access_sort = 'CASE access_level ';
     foreach (wphm_su_access_labels() as $key => $label) $access_sort .= $wpdb->prepare('WHEN %s THEN %s ', $key, $label);
     $sorts['access_level'] = $access_sort . "ELSE '未確認' END";

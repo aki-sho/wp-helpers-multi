@@ -1,0 +1,2 @@
+28d7a14618cec61a9c35eea84f9b8c858df1d46a79b89edf201ddd12ef8aa8fe  wp-helpers-multi-0.9.8.zip
+0fca96951cf5167dca03e580a944d51f5de0b15b9f7f3c873c70756c9e572018  update.json

@@ -22,9 +22,11 @@ function wphm_su_response(string $search = '', int $page = 1, string $orderby = 
     if (!is_array($state)) $state = [];
     if (!empty($state['run']) && wphm_su_has_clear_request($state['run'])) {
         if (wphm_su_lock()) { try { wphm_su_clear_requested($state['run']); } finally { wphm_su_unlock(); } }
-        return ['state' => [], 'result' => ['rows' => [], 'total' => 0, 'page' => 1, 'pages' => 1, 'orderby' => $orderby, 'order' => $order]];
+        return ['state' => [], 'filters' => wphm_su_filters(), 'filter_summary' => wphm_su_filter_summary(wphm_su_filters()), 'classification' => ['pending' => 0, 'unknown' => 0], 'result' => ['rows' => [], 'total' => 0, 'page' => 1, 'pages' => 1, 'orderby' => $orderby, 'order' => $order]];
     }
-    return ['state' => $state, 'result' => wphm_su_rows($search, $page, 100, $orderby, $order)];
+    global $wpdb;
+    if (!empty($state['run'])) $state['needs_classification'] = (bool)$wpdb->get_var('SELECT id FROM ' . wphm_su_table() . ' WHERE classified = 0 LIMIT 1');
+    return ['state' => $state, 'filters' => wphm_su_filters(), 'filter_summary' => wphm_su_filter_summary(wphm_su_filters()), 'classification' => wphm_su_classification_counts(), 'result' => wphm_su_rows($search, $page, 100, $orderby, $order)];
 }
 
 function wphm_su_ajax(): void {
@@ -32,7 +34,7 @@ function wphm_su_ajax(): void {
     check_ajax_referer('wphm_site_urls', 'nonce');
     if (!wphm_su_schema()) wp_send_json_error(['message' => '収集結果の保存先を作成できませんでした。'], 500);
     $op = isset($_POST['op']) && is_string($_POST['op']) ? $_POST['op'] : '';
-    if (!in_array($op, ['start', 'step', 'list', 'clear'], true)) wp_send_json_error(['message' => '操作が不正です。'], 400);
+    if (!in_array($op, ['start', 'step', 'list', 'clear', 'filters'], true)) wp_send_json_error(['message' => '操作が不正です。'], 400);
     if ($op === 'clear') {
         $run = isset($_POST['run']) && is_string($_POST['run']) ? $_POST['run'] : '';
         if (!preg_match('/^[a-f0-9]{32}$/D', $run)) wp_send_json_error(['message' => '削除対象が不正です。'], 400);
@@ -44,12 +46,20 @@ function wphm_su_ajax(): void {
         if (wphm_su_lock()) { try { $cleared = wphm_su_clear_requested($run); } finally { wphm_su_unlock(); } }
         wp_send_json_success(['cleared' => $cleared, 'pending' => !$cleared]);
     }
-    if ($op === 'start' && isset($_POST['exclude_uploads']) && (!is_string($_POST['exclude_uploads']) || !in_array($_POST['exclude_uploads'], ['0', '1'], true))) wp_send_json_error(['message' => '除外設定が不正です。'], 400);
+    $filters = null;
+    if (in_array($op, ['start', 'filters'], true)) {
+        try { $filters = wphm_su_filter_input($_POST); }
+        catch (InvalidArgumentException $exception) { wp_send_json_error(['message' => $exception->getMessage()], 400); }
+    }
+    if ($op === 'filters') {
+        try { wphm_su_save_filters($filters); }
+        catch (RuntimeException $exception) { wp_send_json_error(['message' => $exception->getMessage()], 500); }
+    }
     $error = '';
-    if ($op !== 'list') {
+    if (in_array($op, ['start', 'step'], true)) {
         if (!wphm_su_lock()) wp_send_json_error(['message' => '別の収集処理が実行中です。少し待って再開してください。'], 409);
         try {
-            if ($op === 'start') wphm_su_start(($_POST['exclude_uploads'] ?? '0') === '1');
+            if ($op === 'start') wphm_su_start($filters);
             else {
                 $run = isset($_POST['run']) && is_string($_POST['run']) ? $_POST['run'] : '';
                 wphm_su_step($run);
@@ -80,11 +90,12 @@ function wphm_su_handle_request(): void {
             $state = get_option('wphm_site_urls_state', []);
             if (is_array($state) && !empty($state['run'])) wphm_su_clear_requested($state['run']);
             [$orderby, $order] = wphm_su_sort_input($_GET);
+            $filters = wphm_su_filters();
             $stream = wphm_csv_open_output('site-urls-' . wp_date('Ymd-His') . '.csv');
             wphm_csv_write_row($stream, array_values(wphm_su_columns()));
             $page = 1;
             do {
-                $result = wphm_su_rows(wphm_su_search_input($_GET), $page, 200, $orderby, $order);
+                $result = wphm_su_rows(wphm_su_search_input($_GET), $page, 200, $orderby, $order, $filters);
                 foreach ($result['rows'] as $row) wphm_csv_write_row($stream, [$row['url'], $row['source_url'], $row['source_label'], (int)$row['http_status'], $row['confirmation_label'], $row['access_label']]);
                 $page++;
             } while ($page <= $result['pages']);
@@ -102,18 +113,26 @@ function wphm_su_render_page(): void {
     [$orderby, $order] = wphm_su_sort_input($_GET);
     $data = wphm_su_response($search, $page, $orderby, $order);
     $result = $data['result']; $state = $data['state'];
-    $exclude_uploads = (bool)get_option('wphm_site_urls_exclude_uploads', false);
+    $filters = wphm_su_filters();
     $uploads = wp_get_upload_dir();
     $csv = wp_nonce_url(add_query_arg(['page' => 'wphm-site-urls', 'wphm_su_export' => 'csv', 'q' => $search, 'orderby' => $orderby, 'order' => $order], admin_url('admin.php')), 'wphm_site_urls_export');
     echo '<div class="wrap wphm-app">';
     wphm_render_header('サイト内URL一覧');
     ?>
-    <div id="wphm-site-urls" data-run="<?php echo esc_attr($state['run'] ?? ''); ?>" data-phase="<?php echo esc_attr($state['phase'] ?? ''); ?>" data-page="<?php echo (int)$result['page']; ?>" data-orderby="<?php echo esc_attr($orderby); ?>" data-order="<?php echo esc_attr($order); ?>">
+    <div id="wphm-site-urls" data-run="<?php echo esc_attr($state['run'] ?? ''); ?>" data-phase="<?php echo esc_attr($state['phase'] ?? ''); ?>" data-classify="<?php echo !empty($state['needs_classification']) ? '1' : '0'; ?>" data-page="<?php echo (int)$result['page']; ?>" data-orderby="<?php echo esc_attr($orderby); ?>" data-order="<?php echo esc_attr($order); ?>">
         <p>サイト内で見つかったURLから、固定ページ・投稿記事のURLだけを除外して一覧表示します。</p>
         <fieldset class="wphm-su-exclusions">
-            <legend>収集前の除外設定</legend>
-            <label><input type="checkbox" id="wphm-su-exclude-uploads" value="1" <?php checked($exclude_uploads); ?>> アップロードディレクトリ配下のURLを除外する</label>
-            <p class="description"><code><?php echo esc_html(trailingslashit($uploads['baseurl'] ?? content_url('/uploads/'))); ?></code> と、その下の画像・ファイル・サブフォルダのURLを収集しません。変更は「収集開始・再収集」で反映します。</p>
+            <legend>収集するURLの種類</legend>
+            <div class="wphm-su-filter-modes">
+                <label><input type="radio" name="wphm-su-mode" value="exclude" <?php checked($filters['mode'], 'exclude'); ?>> チェックした種類を除外</label>
+                <label><input type="radio" name="wphm-su-mode" value="only" <?php checked($filters['mode'], 'only'); ?>> チェックした種類だけ収集</label>
+            </div>
+            <?php foreach (wphm_su_filter_labels() as $key => $label): ?>
+                <label class="wphm-su-filter-type"><input type="checkbox" id="wphm-su-filter-<?php echo esc_attr($key); ?>" data-filter="<?php echo esc_attr($key); ?>" <?php checked($filters[$key]); ?>> <?php echo esc_html($label); ?></label>
+            <?php endforeach; ?>
+            <p class="description">アップロード先：<code><?php echo esc_html(trailingslashit($uploads['baseurl'] ?? content_url('/uploads/'))); ?></code>。複数選択は、いずれかに当てはまるURLが対象です。</p>
+            <p class="description">選択は自動で保存し、収集済みの一覧・以後の収集・CSVに反映します。収集中は現在の通信が終わり次第反映します。保存や再収集の操作は不要です。URLを発見するため、選択外のページも巡回します。</p>
+            <p id="wphm-su-filter-status" role="status" aria-live="polite"></p>
         </fieldset>
         <div class="wphm-su-controls">
             <button type="button" class="button button-primary" id="wphm-su-start">収集開始・再収集</button>
@@ -122,7 +141,9 @@ function wphm_su_render_page(): void {
             <a class="button" id="wphm-su-csv" href="<?php echo esc_url($csv); ?>">CSV出力</a>
         </div>
         <p id="wphm-su-status" role="status" aria-live="polite"><?php echo empty($state) ? 'まだ収集していません。' : esc_html('表示対象 ' . $result['total'] . '件 ／ 発見 ' . ($state['total'] ?? 0) . 'URL ／ 通信 ' . ($state['fetched'] ?? 0) . '回'); ?></p>
-        <p id="wphm-su-applied-filters"><?php if (!empty($state['run'])) echo !empty($state['filters']['exclude_uploads']) ? 'この収集の設定：アップロードディレクトリ配下を除外' : 'この収集の設定：アップロードディレクトリの除外なし'; ?></p>
+        <p id="wphm-su-applied-filters"><?php echo esc_html('適用中：' . $data['filter_summary']); ?></p>
+        <p id="wphm-su-classification"><?php echo esc_html('種類の確認待ち ' . $data['classification']['pending'] . '件 ／ 転送先を判定できないURL ' . $data['classification']['unknown'] . '件'); ?></p>
+        <p class="description">画像への転送は、転送先の応答で確認します。「画像ファイルへ自動転送するURL」を選択中は、未判定のURLを判定まで保留します。通信失敗・外部サイトへの転送等で確認できないURLも、この種類については保留します。</p>
         <p id="wphm-su-notice"><?php if (!empty($state['limited'])) echo '上限に達した箇所があります。収集済みの範囲を表示しています。'; ?></p>
         <form method="get" class="wphm-su-controls" id="wphm-su-search-form">
             <input type="hidden" name="page" value="wphm-site-urls">

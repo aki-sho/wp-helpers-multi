@@ -6,8 +6,15 @@
   const el = id => document.getElementById(`wphm-su-${id}`);
   let running = false, requestBusy = false, leaving = false, generation = 0, run = root.dataset.run, phase = root.dataset.phase, page = Number(root.dataset.page) || 1, pages = 1;
   let orderby = root.dataset.orderby || 'url', order = root.dataset.order || 'ASC';
+  let filterVersion = 0, appliedFilterVersion = 0;
+  const filterInputs = [...root.querySelectorAll('[data-filter], input[name="wphm-su-mode"]')];
+  const filters = () => {
+    const value = { mode: root.querySelector('input[name="wphm-su-mode"]:checked').value };
+    for (const input of root.querySelectorAll('[data-filter]')) value[input.dataset.filter] = input.checked ? '1' : '0';
+    return value;
+  };
   const clearStorageKey = `wphm-su-departure:${new URL(wphmSiteUrls.url, window.location.href).pathname}`;
-  const controls = () => { el('start').disabled = running || requestBusy; el('exclude-uploads').disabled = running || requestBusy; el('resume').disabled = running || requestBusy || !run || phase === 'done'; el('stop').disabled = !running; el('prev').disabled = requestBusy || page <= 1; el('next').disabled = requestBusy || page >= pages; };
+  const controls = () => { el('start').disabled = running || requestBusy; el('resume').disabled = running || requestBusy || !run || phase === 'done'; el('stop').disabled = !running; el('prev').disabled = requestBusy || page <= 1; el('next').disabled = requestBusy || page >= pages; el('csv').setAttribute('aria-disabled', requestBusy || filterVersion !== appliedFilterVersion ? 'true' : 'false'); };
   const anchor = value => { const node = document.createElement('a'); node.href = value; node.textContent = value; node.target = '_blank'; node.rel = 'noopener noreferrer'; return node; };
   function render(data) {
     const state = data.state || {}, result = data.result;
@@ -15,7 +22,9 @@
     orderby = result.orderby || orderby; order = result.order || order;
     el('status').textContent = `${phase === 'done' ? '収集完了' : running ? '収集中' : run ? '収集途中' : '未収集'}：表示対象 ${result.total}件 ／ 発見 ${state.total || 0}URL ／ 通信 ${state.fetched || 0}回`;
     el('notice').textContent = state.limited ? '上限に達した箇所があります。収集済みの範囲を表示しています。' : '';
-    el('applied-filters').textContent = !run ? '' : state.filters && state.filters.exclude_uploads ? 'この収集の設定：アップロードディレクトリ配下を除外' : 'この収集の設定：アップロードディレクトリの除外なし';
+    if (data.filter_summary) el('applied-filters').textContent = `適用中：${data.filter_summary}`;
+    const classification = data.classification || {};
+    el('classification').textContent = `種類の確認待ち ${classification.pending || 0}件 ／ 転送先を判定できないURL ${classification.unknown || 0}件`;
     const body = el('rows'); body.replaceChildren();
     for (const row of result.rows) {
       const tr = document.createElement('tr');
@@ -38,22 +47,42 @@
     if (requestBusy) return null;
     requestBusy = true; controls();
     const requestGeneration = generation;
+    const requestFilterVersion = filterVersion;
     try {
       const body = new URLSearchParams({ action: 'wphm_site_urls', nonce: wphmSiteUrls.nonce, op, run, q: el('search').value, paged: String(page), orderby, order });
-      if (op === 'start') body.set('exclude_uploads', el('exclude-uploads').checked ? '1' : '0');
+      if (op === 'start' || op === 'filters') for (const [key, value] of Object.entries(filters())) body.set(key, value);
       const response = await fetch(wphmSiteUrls.url, { method: 'POST', credentials: 'same-origin', body });
       let data; try { data = await response.json(); } catch (_) { throw new Error('サーバーから正常な応答を取得できませんでした。画面を更新して続きから再開してください。'); }
       if (!response.ok || !data.success) throw new Error(data.data && data.data.message || '収集結果を取得できませんでした。');
       if (leaving || generation !== requestGeneration) return null;
+      if (op === 'start' || op === 'filters') {
+        appliedFilterVersion = requestFilterVersion;
+        if (appliedFilterVersion === filterVersion) el('filter-status').textContent = '選択を反映しました。';
+      }
       render(data.data); return data.data;
     } finally { requestBusy = false; controls(); }
   }
+  async function syncFilters() {
+    while (!leaving && filterVersion !== appliedFilterVersion) {
+      if (requestBusy) { await new Promise(resolve => setTimeout(resolve, 50)); continue; }
+      await request('filters');
+    }
+  }
+  let filterSync = null;
+  const saveFilters = () => {
+    if (!filterSync) filterSync = syncFilters().catch(error => { el('filter-status').textContent = `反映できませんでした：${error.message}。選択を変更すると再試行します。`; }).finally(() => { filterSync = null; });
+    return filterSync;
+  };
+  for (const input of filterInputs) input.addEventListener('change', () => {
+    filterVersion++; page = 1; el('filter-status').textContent = '選択を反映中…'; controls(); saveFilters();
+  });
+  el('csv').addEventListener('click', event => { if (el('csv').getAttribute('aria-disabled') === 'true') { event.preventDefault(); el('filter-status').textContent = '処理の完了後にCSV出力できます。'; } });
   async function collect(start) {
     if (running || requestBusy) return;
     running = true; controls();
     try {
       if (start) { page = 1; await request('start'); }
-      while (running && phase !== 'done') { await request('step'); if (running && phase !== 'done') await new Promise(resolve => setTimeout(resolve, 350)); }
+      while (running && phase !== 'done') { if (filterSync) await filterSync; await request('step'); if (running && phase !== 'done') await new Promise(resolve => setTimeout(resolve, 350)); }
     } catch (error) { el('notice').textContent = error.message; }
     finally { running = false; controls(); if (phase !== 'done' && run) el('status').textContent += '（停止中・続きから再開できます）'; }
   }
@@ -94,4 +123,5 @@
   window.addEventListener('pageshow', event => { if (event.persisted) { leaving = false; running = false; controls(); retryDeparture(); } });
   retryDeparture();
   pages = Number(el('pages').textContent.split('/')[1]) || 1; controls();
+  if (run && root.dataset.classify === '1') { phase = 'crawl'; collect(false); }
 })();

@@ -5,12 +5,13 @@ const path = require('node:path');
 const { EventEmitter, once } = require('node:events');
 const { chromium } = require(path.join(process.env.WPHM_NODE_MODULES, 'playwright'));
 const root = path.resolve(__dirname, '..');
-let checks = 0, steps = 0, active = false, excludeUploads = false;
+let checks = 0, steps = 0, active = false;
 let starts = 0, currentRun = '', cleared = false;
 const events = new EventEmitter();
 const same = (actual, expected, label) => { assert.deepEqual(actual, expected, label); checks++; };
 const raw = JSON.parse(fs.readFileSync(path.join(root, '.wphm-test/site-data-result.json'), 'utf8'));
 currentRun = raw.state.run;
+let selected = { ...raw.filters };
 const calls = [];
 const files = new Map([['/admin.css', 'assets/css/admin-modern.css'], ['/site.css', 'assets/css/site-urls.css'], ['/site.js', 'assets/js/site-urls.js']]);
 const server = http.createServer(async (request, response) => {
@@ -22,12 +23,18 @@ const server = http.createServer(async (request, response) => {
       if (input.get('run') === currentRun) { cleared = true; active = false; }
       response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ success: true, data: { cleared } })); events.emit('clear', input.get('run')); return;
     }
-    if (op === 'start') { active = true; steps = 0; cleared = false; currentRun = String(++starts).padStart(32, '0'); excludeUploads = input.get('exclude_uploads') === '1'; }
+    if (op === 'start') { active = true; steps = 0; cleared = false; currentRun = String(++starts).padStart(32, '0'); }
+    if (op === 'filters' || op === 'start') { selected = { mode: input.get('mode'), uploads: input.get('uploads') === '1', attachments: input.get('attachments') === '1', image_redirects: input.get('image_redirects') === '1' }; }
     if (op === 'step') { await new Promise(resolve => setTimeout(resolve, 100)); steps++; }
     const result = structuredClone(raw);
     result.state.phase = active && steps < 4 ? 'crawl' : 'done';
     result.state.run = currentRun; result.state.fetched = steps;
-    result.state.filters = { exclude_uploads: excludeUploads };
+    result.filters = selected; result.filter_summary = Object.entries({ uploads: 'アップロードディレクトリ配下', image_redirects: '画像ファイルへ自動転送するURL', attachments: '添付ファイルページ（attachment_id・添付ページURL）' }).filter(([key]) => selected[key]).map(([, label]) => label).join('・') + (selected.mode === 'only' ? ' だけ収集' : ' を除外');
+    result.result.rows = result.result.rows.filter(row => {
+      const matches = selected.uploads && Number(row.is_upload) || selected.attachments && Number(row.is_attachment) || selected.image_redirects && row.redirect_state === 'image';
+      return selected.mode === 'only' ? !!matches : !matches && !(selected.image_redirects && (['queued', 'head', 'head_get'].includes(row.crawl_state) || ['pending', 'unknown', 'unverified'].includes(row.redirect_state)));
+    });
+    if (cleared) { result.state = {}; result.result.rows = []; }
     const query = (input.get('q') || '').toLowerCase();
     result.result.rows = result.result.rows.filter(row => `${row.url} ${row.source_url}`.toLowerCase().includes(query));
     result.result.total = result.result.rows.length; result.result.page = 1; result.result.pages = 1;
@@ -67,7 +74,7 @@ const server = http.createServer(async (request, response) => {
     await page.screenshot({ path: path.join(root, '.wphm-test/site-data-post.png'), fullPage: true });
     await page.goto(base + '/');
     same(await page.locator('#wphm-su-start').isEnabled(), true, 'start button available');
-    same(await page.locator('#wphm-su-exclude-uploads').isChecked(), false, 'upload exclusion initially optional');
+    same(await page.locator('#wphm-su-filter-uploads').isChecked(), false, 'upload exclusion initially optional');
     same(await page.locator('#wphm-su-rows').textContent().then(text => text.includes('unusual/path/')), true, 'unknown URL shown in native markup');
     await page.locator('#wphm-su-search').fill('only-by-crawling');
     await page.locator('#wphm-su-search-form button').click();
@@ -83,25 +90,55 @@ const server = http.createServer(async (request, response) => {
       same(new URL(await page.locator('#wphm-su-csv').getAttribute('href')).searchParams.get('orderby'), key, 'CSV retains active sorting');
     }
     same(calls.filter(call => call.op === 'clear').length, 0, 'search/sorting does not clear the dataset');
-    await page.locator('#wphm-su-exclude-uploads').check(); await page.locator('#wphm-su-start').click();
+    const setFilter = async (selector, checked = true) => {
+      const node = page.locator(selector);
+      if (await node.isChecked() === checked) return;
+      await Promise.all([page.waitForResponse(response => response.url().endsWith('/ajax') && response.request().postData()?.includes('op=filters')), node.setChecked(checked)]);
+      await page.waitForFunction(() => document.querySelector('#wphm-su-csv').getAttribute('aria-disabled') === 'false');
+    };
+    const resetFilters = async () => { for (const key of ['uploads', 'attachments', 'image_redirects']) await setFilter(`#wphm-su-filter-${key}`, false); };
+    for (const mode of ['exclude', 'only']) {
+      await resetFilters(); await setFilter(`input[name="wphm-su-mode"][value="${mode}"]`);
+      for (const key of ['uploads', 'attachments', 'image_redirects']) {
+        await resetFilters(); await setFilter(`#wphm-su-filter-${key}`);
+        same(selected[key], true, 'checkbox autosaves without a save button');
+        const visible = await page.locator('#wphm-su-rows tr td:first-child').allTextContents();
+        const example = key === 'uploads' ? '/wp-content/uploads/2026/11/crawled.jpg' : key === 'attachments' ? '/inventory-article/photo/' : '/スクリーンショット-451/';
+        same(visible.some(url => url.endsWith(example)), mode === 'only', 'each group supports exclude and only without recollecting');
+      }
+    }
+    same(starts, 0, 'changing all filter controls never starts another scan');
+    same(currentRun, raw.state.run, 'filtering retains the original collection identity');
+    await resetFilters(); await setFilter('input[name="wphm-su-mode"][value="exclude"]');
+    same(await page.locator('#wphm-su-rows').textContent().then(text => text.includes('unusual/path/')), true, 'unchecking restores the existing candidates');
+    await setFilter('#wphm-su-filter-uploads'); await page.locator('#wphm-su-start').click();
     await page.waitForFunction(() => !document.querySelector('#wphm-su-stop').disabled);
-    same(await page.locator('#wphm-su-exclude-uploads').isDisabled(), true, 'exclusion frozen while collecting');
+    same(await page.locator('#wphm-su-filter-uploads').isEnabled(), true, 'filter remains editable while collecting');
     await page.locator('#wphm-su-stop').click();
     await page.waitForFunction(() => !document.querySelector('#wphm-su-resume').disabled);
     same(await page.locator('#wphm-su-start').isEnabled(), true, 'paused scan allows controls');
-    same(calls.find(call => call.op === 'start').exclude_uploads, '1', 'selection sent before starting');
-    await page.locator('#wphm-su-exclude-uploads').uncheck();
+    same(calls.find(call => call.op === 'start').uploads, '1', 'selection sent before starting');
+    await setFilter('#wphm-su-filter-uploads', false);
     await page.locator('#wphm-su-resume').click();
     await page.waitForFunction(() => document.querySelector('#wphm-su-status').textContent.includes('収集完了'));
     same(steps, 4, 'resume completes remaining batches');
     same(await page.locator('#wphm-su-resume').isDisabled(), true, 'completed scan cannot resume');
     same(calls.every(call => call.nonce === 'fixture-nonce' && call.action === 'wphm_site_urls'), true, 'requests carry action and nonce');
     same(calls.some(call => call.op === 'step' && call.run === '00000000000000000000000000000001'), true, 'batches use current run token');
-    same(calls.filter(call => call.op === 'step').every(call => !('exclude_uploads' in call)), true, 'resume cannot change the original exclusion');
-    same(await page.locator('#wphm-su-applied-filters').textContent(), 'この収集の設定：アップロードディレクトリ配下を除外', 'applied setting shown separately from next selection');
-    await page.locator('#wphm-su-start').click();
+    same(selected.uploads, false, 'pause and resume use the automatically updated selection');
+    const activeStep = page.waitForRequest(request => request.url().endsWith('/ajax') && request.postData()?.includes('op=step'));
+    await page.locator('#wphm-su-start').click(); await activeStep;
+    await setFilter('#wphm-su-filter-image_redirects');
+    same(selected.image_redirects, true, 'checkbox changes apply during an active collection batch');
+    const rapid = page.waitForResponse(response => response.url().endsWith('/ajax') && response.request().postData()?.includes('op=filters'));
+    await page.locator('#wphm-su-filter-attachments').evaluate(node => { for (const checked of [true, false, true]) { node.checked = checked; node.dispatchEvent(new Event('change', { bubbles: true })); } });
+    await rapid;
+    await page.waitForFunction(() => document.querySelector('#wphm-su-csv').getAttribute('aria-disabled') === 'false');
+    same(selected.attachments, true, 'rapid checkbox changes retain the final selection');
     await page.waitForFunction(() => !document.querySelector('#wphm-su-start').disabled && document.querySelector('#wphm-su-status').textContent.includes('収集完了'));
-    same(calls.filter(call => call.op === 'start').at(-1).exclude_uploads, '0', 'unchecked selection sent on recollection');
+    same(calls.filter(call => call.op === 'start').at(-1).uploads, '0', 'current selection used on recollection');
+    same(starts, 2, 'live selection changes never restart the running collection');
+    await resetFilters(); await setFilter('input[name="wphm-su-mode"][value="only"]'); await setFilter('#wphm-su-filter-image_redirects');
     await page.screenshot({ path: path.join(root, '.wphm-test/site-data-urls.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     same(await page.locator('#wphm-su-start').isVisible(), true, 'mobile controls remain visible');

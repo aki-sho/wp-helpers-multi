@@ -3,6 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 require_once __DIR__ . '/../link_inspector_http.php';
 require_once __DIR__ . '/repository.php';
+require_once __DIR__ . '/filters.php';
 require_once __DIR__ . '/service.php';
 require_once __DIR__ . '/admin.php';
 
