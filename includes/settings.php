@@ -110,6 +110,18 @@ function wphm_get_tool_definitions(): array {
             'callback'    => 'wphm_post_data_log',
             'default'     => true,
         ],
+        'site_urls' => [
+            'label' => 'サイト内URL一覧',
+            'description' => 'サイト内のURLを収集し、投稿・固定ページのURLを除いた一覧を表示します。',
+            'icon' => 'dashicons-list-view',
+            'group' => 'management',
+            'menu_title' => 'サイト内URL一覧',
+            'page_title' => 'サイト内URL一覧',
+            'slug' => 'wphm-site-urls',
+            'callback' => 'wphm_render_site_urls',
+            'load_callback' => 'wphm_su_handle_request',
+            'default' => true,
+        ],
         'search_replace' => [
             'label'       => '記事検索・置換',
             'description' => '投稿・固定ページの編集画面内で、編集中の本文を検索・置換します。',

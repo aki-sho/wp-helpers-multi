@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.9.6",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-11-01",
+  "sections": {
+    "description": "WordPress管理画面の便利ツール集。投稿データ、サイト内URL一覧、検索・置換、ログ等をまとめて提供します。",
+    "changelog": "- v0.9.6 投稿データに記事内画像数・リンク数を追加。固定ページ・投稿記事以外のサイト内URLを一覧表示する新機能を追加（収集・検索・CSV・停止/再開）。"
+  }
+}

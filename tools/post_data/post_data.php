@@ -42,6 +42,8 @@ function fv_export_list_available_columns() {
     'slug'      => 'スラッグ',
     'meta_desc'  => 'メタディスクリプション',
     'has_thumb'  => 'アイキャッチ',
+    'image_count' => '記事内画像数',
+    'link_count'  => '記事内リンク数',
     'char_count' => '文字数',
     'view_count' => '記事閲覧総数',
     'created_at' => '作成日',
@@ -179,6 +181,7 @@ function fv_export_list_get_rows($category_id = 0, $orderby = 'id', $order = 'DE
     $meta_desc = trim(wp_strip_all_tags($meta_desc));
 
     $has_thumb  = has_post_thumbnail($post_id) ? 'あり' : 'なし';
+    $body_counts = fv_export_list_body_counts((string)get_post_field('post_content', $post_id));
     $char_count = fv_export_list_calc_char_count($post_id);
     $view_count = (string) ($view_counts[(int) $post_id] ?? 0);
 
@@ -200,6 +203,8 @@ function fv_export_list_get_rows($category_id = 0, $orderby = 'id', $order = 'DE
         // ✅ 追加
         'meta_desc'  => $meta_desc,
         'has_thumb'  => $has_thumb,
+        'image_count' => $body_counts['images'],
+        'link_count' => $body_counts['links'],
         'char_count' => $char_count,
         'view_count' => $view_count,
         'created_at' => $created_at,
@@ -256,6 +261,8 @@ function fv_export_list_get_rows($category_id = 0, $orderby = 'id', $order = 'DE
         // ✅ 追加
         'meta_desc'  => $meta_desc,
         'has_thumb'  => $has_thumb,
+        'image_count' => $body_counts['images'],
+        'link_count' => $body_counts['links'],
         'char_count' => $char_count,
         'view_count' => $view_count,
         'created_at' => $created_at,
@@ -360,7 +367,7 @@ function fv_export_list_sort_rows($rows, $orderby, $order) {
     $orderby = 'id';
   }
 
-  $numeric_columns = ['id', 'char_count', 'view_count'];
+  $numeric_columns = ['id', 'char_count', 'view_count', 'image_count', 'link_count'];
   $direction = strtoupper((string) $order) === 'ASC' ? 1 : -1;
 
   usort($rows, function ($a, $b) use ($orderby, $numeric_columns, $direction) {
@@ -381,6 +388,19 @@ function fv_export_list_sort_rows($rows, $orderby, $order) {
   });
 
   return $rows;
+}
+
+/** Count saved body markup without executing shortcodes, scripts or dynamic blocks. */
+function fv_export_list_body_counts(string $content): array {
+  if ($content === '') return ['images' => 0, 'links' => 0];
+  $previous = libxml_use_internal_errors(true);
+  $dom = new DOMDocument();
+  $ok = $dom->loadHTML('<!doctype html><html><head><meta charset="utf-8"></head><body>' . $content . '</body></html>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+  libxml_clear_errors();
+  libxml_use_internal_errors($previous);
+  if (!$ok) return ['images' => 0, 'links' => 0];
+  $xpath = new DOMXPath($dom);
+  return ['images' => (int)$xpath->evaluate('count(//img[not(ancestor::script) and not(ancestor::style)])'), 'links' => (int)$xpath->evaluate('count(//a[@href][not(ancestor::script) and not(ancestor::style)])')];
 }
 
 // ✅ 文字数：本文からタグ/ショートコード除去 → 空白類を除外してカウント
@@ -428,6 +448,7 @@ function fv_export_list_render_page() {
   } else {
     echo '<h1>投稿データ</h1>';
   }
+  echo '<p class="description">記事内画像数・リンク数は保存された本文を集計します。表示時に追加される画像・リンクは含みません。</p>';
 
   // カテゴリ絞り込み（通常の投稿一覧と同じ階層付きドロップダウン）
   echo '<form method="get">';
@@ -474,7 +495,7 @@ function fv_export_list_render_page() {
   echo '</p>';
 
   // テーブル（選択カラムで出す）
-  echo '<table class="widefat fixed striped">';
+  echo '<div class="wphm-post-data-table" style="overflow-x:auto;"><table class="widefat fixed striped" style="min-width:1400px;">';
   echo '<thead><tr>';
   foreach ($selected_cols as $col_key) {
     $is_sorted = $orderby === $col_key;
@@ -516,6 +537,6 @@ function fv_export_list_render_page() {
     }
   }
 
-  echo '</tbody></table>';
+  echo '</tbody></table></div>';
   echo '</div>';
 }

@@ -305,6 +305,10 @@ function wphm_render_search_replace(): void {
     wphm_require_and_render_tool(__DIR__ . '/../tools/search_replace/search_replace.php', '記事検索・置換', 'wphm_render_search_replace_tool_page');
 }
 
+function wphm_render_site_urls(): void {
+    wphm_require_and_render_tool(__DIR__ . '/../tools/site_urls/site_urls.php', 'サイト内URL一覧', 'wphm_su_render_page');
+}
+
 function wphm_render_comment_manager(): void {
     wphm_require_and_render_tool(__DIR__ . '/../tools/comment_manager/comment_manager.php', 'コメント管理', 'wphm_render_comment_manager_tool_page');
 }

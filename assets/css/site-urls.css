@@ -1,0 +1,10 @@
+.wphm-su-controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:16px 0}
+.wphm-su-controls input[type=search]{min-width:250px;max-width:100%}
+.wphm-su-table-wrap{overflow-x:auto;margin-top:16px}
+.wphm-su-table-wrap table{width:100%;min-width:850px;table-layout:fixed}
+.wphm-su-table-wrap td{overflow-wrap:anywhere;vertical-align:top}
+.wphm-su-table-wrap th:nth-child(1){width:36%}
+.wphm-su-table-wrap th:nth-child(2){width:27%}
+.wphm-su-table-wrap th:nth-child(4){width:65px}
+.wphm-su-pagination{justify-content:flex-end}
+#wphm-su-notice{color:#8a4b00}
