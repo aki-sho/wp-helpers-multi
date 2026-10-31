@@ -49,15 +49,72 @@ function wphm_su_should_fetch(string $url): bool {
     return $extension === '' || in_array($extension, ['html', 'htm', 'php', 'xml', 'txt', 'css', 'json'], true);
 }
 
+/** Canonical directory boundaries for the upload-folder exclusion. */
+function wphm_su_directory_path(string $path): string {
+    $segments = [];
+    foreach (explode('/', str_replace('\\', '/', rawurldecode($path))) as $segment) {
+        if ($segment === '' || $segment === '.') continue;
+        if ($segment === '..') array_pop($segments);
+        else $segments[] = $segment;
+    }
+    return '/' . implode('/', $segments);
+}
+
+function wphm_su_upload_directories(): array {
+    $uploads = wp_get_upload_dir();
+    $urls = [(string)($uploads['baseurl'] ?? ''), content_url('/uploads/')];
+    $paths = [];
+    foreach ($urls as $url) {
+        $path = wp_parse_url($url, PHP_URL_PATH);
+        if (!is_string($path)) continue;
+        $path = wphm_su_directory_path($path);
+        if ($path !== '/') $paths[] = $path;
+    }
+    return array_values(array_unique($paths));
+}
+
+function wphm_su_is_excluded(string $url, array $state): bool {
+    $filters = $state['filters'] ?? [];
+    if (empty($filters['exclude_uploads'])) return false;
+    $path = wphm_su_directory_path((string)wp_parse_url($url, PHP_URL_PATH));
+    foreach ($filters['upload_paths'] ?? [] as $directory) {
+        if ($path === $directory || strpos($path, $directory . '/') === 0) return true;
+    }
+    return false;
+}
+
+function wphm_su_access_labels(): array {
+    return ['public' => '未ログインでアクセス可', 'login' => 'ログインが必要', 'password' => 'パスワードが必要', 'auth' => '認証が必要（HTTP 401）', 'denied' => 'アクセス拒否（HTTP 403）', 'unknown' => '未確認'];
+}
+
+/** Anonymous response evidence; never infer administrator/editor roles from a URL. */
+function wphm_su_access_level(string $url, int $code = 0, string $body = '', string $location = ''): string {
+    if ($code === 403) return 'denied';
+    if ($code === 401) return 'auth';
+    $path = wphm_su_directory_path((string)wp_parse_url($url, PHP_URL_PATH));
+    $admin = wphm_su_directory_path((string)wp_parse_url(admin_url('/'), PHP_URL_PATH));
+    if ($admin !== '/' && ($path === $admin || strpos($path, $admin . '/') === 0) && !in_array(basename($path), ['admin-ajax.php', 'admin-post.php'], true)) return 'login';
+    if (in_array($code, [301, 302, 303, 307, 308], true) && $location !== '') {
+        $target = WP_Http::make_absolute_url($location, $url); $login = wp_login_url();
+        if (strtolower((string)wp_parse_url($target, PHP_URL_HOST)) === strtolower((string)wp_parse_url($login, PHP_URL_HOST)) && wp_parse_url($target, PHP_URL_PATH) === wp_parse_url($login, PHP_URL_PATH)) return 'login';
+    }
+    if ($code === 200) {
+        if (preg_match('~<form\b[^>]*class\s*=\s*["\'][^"\']*\bpost-password-form\b~i', $body)) return 'password';
+        return 'public';
+    }
+    return 'unknown';
+}
+
 function wphm_su_add(string $value, string $base, string $label, array &$state): void {
     global $wpdb;
     $url = wphm_su_normalize($value, $base);
     if ($url === '') return;
+    if (wphm_su_is_excluded($url, $state)) return;
     $hash = hash('sha256', $url); $table = wphm_su_table();
     if ($wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE url_hash=%s", $hash))) return;
     if ($state['total'] >= WPHM_SU_MAX_URLS) { $state['limited'] = true; return; }
     $fetch = wphm_su_should_fetch($url);
-    $ok = $wpdb->insert($table, ['url_hash' => $hash, 'url' => $url, 'source_url' => wphm_su_normalize($base, home_url('/')), 'source_label' => substr($label, 0, 100), 'is_article' => wphm_su_is_article($url) ? 1 : 0, 'crawl_state' => $fetch ? 'queued' : 'listed', 'note' => $fetch ? '' : 'URLを記録（自動巡回なし）']);
+    $ok = $wpdb->insert($table, ['url_hash' => $hash, 'url' => $url, 'source_url' => wphm_su_normalize($base, home_url('/')), 'source_label' => substr($label, 0, 100), 'is_article' => wphm_su_is_article($url) ? 1 : 0, 'crawl_state' => $fetch ? 'queued' : 'listed', 'note' => $fetch ? '' : 'URLを記録（自動巡回なし）', 'access_level' => wphm_su_access_level($url)]);
     if ($ok === false) throw new RuntimeException('URLの保存に失敗しました。');
     $state['total']++;
 }
@@ -110,10 +167,12 @@ function wphm_su_block_urls(array $block, array &$urls, int $depth = 0): void {
     foreach ($block['innerBlocks'] ?? [] as $child) wphm_su_block_urls($child, $urls, $depth + 1);
 }
 
-function wphm_su_start(): array {
+function wphm_su_start(bool $exclude_uploads = false): array {
     global $wpdb;
     if (!$wpdb->query('DELETE FROM ' . wphm_su_table()) && $wpdb->last_error) throw new RuntimeException('前回の収集結果を初期化できませんでした。');
     $state = ['run' => str_replace('-', '', wp_generate_uuid4()), 'phase' => 'posts', 'cursor' => 0, 'total' => 0, 'fetched' => 0, 'limited' => false, 'started_at' => time(), 'updated_at' => time()];
+    $state['filters'] = ['exclude_uploads' => $exclude_uploads, 'upload_paths' => wphm_su_upload_directories()];
+    update_option('wphm_site_urls_exclude_uploads', $exclude_uploads, false);
     $roots = [home_url('/'), site_url('/'), home_url('/robots.txt'), wp_login_url(), rest_url(), get_feed_link(), get_bloginfo('comments_rss2_url')];
     if (function_exists('get_sitemap_url')) $roots[] = get_sitemap_url('index');
     foreach (get_post_types(['public' => true]) as $type) { $archive = get_post_type_archive_link($type); if ($archive) $roots[] = $archive; }
@@ -163,7 +222,7 @@ function wphm_su_seed(array &$state, float $deadline): void {
 
 function wphm_su_crawl(array $row, array &$state): void {
     global $wpdb;
-    $url = $row['url']; $note = ''; $code = 0;
+    $url = $row['url']; $note = ''; $code = 0; $body = ''; $location = '';
     if (!wphm_li_allowed_url($url)) $note = '内部IP等への通信を拒否';
     else {
         $response = wp_safe_remote_get($url, ['timeout' => 3, 'redirection' => 0, 'limit_response_size' => WPHM_SU_MAX_BODY + 1, 'decompress' => false, 'headers' => ['Accept-Encoding' => 'identity']]);
@@ -176,6 +235,7 @@ function wphm_su_crawl(array $row, array &$state): void {
             $type = strtolower((string)wp_remote_retrieve_header($response, 'content-type'));
             if (in_array($code, [301, 302, 303, 307, 308], true)) {
                 $target = wp_remote_retrieve_header($response, 'location');
+                $location = is_string($target) ? $target : '';
                 if (is_string($target)) wphm_su_add($target, $url, '転送先', $state);
                 $note = '転送（転送先を別途検証）';
             } elseif (strlen($body) > WPHM_SU_MAX_BODY || !in_array($encoding, ['', 'identity'], true)) { $note = 'サイズ・圧縮上限により解析省略'; $state['limited'] = true; }
@@ -198,13 +258,14 @@ function wphm_su_crawl(array $row, array &$state): void {
             }
         }
     }
-    if ($wpdb->update(wphm_su_table(), ['crawl_state' => 'done', 'http_status' => $code, 'note' => $note], ['id' => (int)$row['id']]) === false) throw new RuntimeException('収集状態の保存に失敗しました。');
+    if ($wpdb->update(wphm_su_table(), ['crawl_state' => 'done', 'http_status' => $code, 'note' => $note, 'access_level' => wphm_su_access_level($url, $code, $body, $location)], ['id' => (int)$row['id']]) === false) throw new RuntimeException('収集状態の保存に失敗しました。');
 }
 
 function wphm_su_step(string $run): array {
     global $wpdb;
     $state = get_option('wphm_site_urls_state', []);
     if (!is_array($state) || empty($state['run']) || !hash_equals($state['run'], $run)) throw new RuntimeException('収集が更新されました。画面を再読み込みしてください。');
+    if (wphm_su_clear_requested($run)) return [];
     if ($state['phase'] === 'done') return $state;
     $state['total'] = (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table());
     $deadline = microtime(true) + 9;
@@ -219,6 +280,7 @@ function wphm_su_step(string $run): array {
     }
     if ($state['total'] >= WPHM_SU_MAX_URLS) { $state['limited'] = true; $state['phase'] = 'done'; }
     $state['updated_at'] = time();
+    if (wphm_su_clear_requested($run)) return [];
     update_option('wphm_site_urls_state', $state, false);
     return $state;
 }

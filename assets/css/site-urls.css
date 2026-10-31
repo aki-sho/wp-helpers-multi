@@ -1,10 +1,15 @@
 .wphm-su-controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:16px 0}
 .wphm-su-controls input[type=search]{min-width:250px;max-width:100%}
 .wphm-su-table-wrap{overflow-x:auto;margin-top:16px}
-.wphm-su-table-wrap table{width:100%;min-width:850px;table-layout:fixed}
+.wphm-su-table-wrap table{width:100%;min-width:1100px;table-layout:fixed}
 .wphm-su-table-wrap td{overflow-wrap:anywhere;vertical-align:top}
-.wphm-su-table-wrap th:nth-child(1){width:36%}
-.wphm-su-table-wrap th:nth-child(2){width:27%}
+.wphm-su-table-wrap th:nth-child(1){width:30%}
+.wphm-su-table-wrap th:nth-child(2){width:24%}
 .wphm-su-table-wrap th:nth-child(4){width:65px}
+.wphm-su-table-wrap th:nth-child(6){width:175px}
+.wphm-su-sort{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
 .wphm-su-pagination{justify-content:flex-end}
 #wphm-su-notice{color:#8a4b00}
+.wphm-su-exclusions{margin:16px 0;padding:12px 16px;border:1px solid #dcdcde;border-radius:8px}
+.wphm-su-exclusions legend{font-weight:600;padding:0 5px}
+.wphm-su-exclusions code{overflow-wrap:anywhere}

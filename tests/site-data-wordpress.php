@@ -38,6 +38,10 @@ try {
     wphm_access_log_maybe_update_schema();
     wphm_ip_blocklist_maybe_update_schema();
     inventory_same(true, wphm_su_schema(), 'URL inventory schema created');
+    $wpdb->query('ALTER TABLE ' . wphm_su_table() . ' DROP COLUMN access_level');
+    update_option('wphm_site_urls_db_version', '1.0.0');
+    inventory_same(true, wphm_su_schema(), 'existing URL inventory schema upgrades');
+    inventory_same(true, (bool)$wpdb->get_var("SHOW COLUMNS FROM " . wphm_su_table() . " LIKE 'access_level'"), 'access column added by migration');
     $wp_rewrite->set_permalink_structure('/%postname%/');
     register_post_type('fixture_item', ['public' => true, 'has_archive' => true, 'rewrite' => ['slug' => 'catalog']]);
     $wp_rewrite->flush_rules(false);
@@ -83,6 +87,15 @@ try {
     inventory_same('https://93.184.216.34:8080/file', wphm_su_normalize('https://93.184.216.34:8080/file', $base), 'same-host nonstandard port URL retained');
     inventory_same(false, wphm_su_should_fetch('https://93.184.216.34:8080/file'), 'nonstandard port never crawled');
     inventory_same($base . 'offer?filter=blue&token=%5Bredacted%5D', wphm_su_normalize('/offer?filter=blue&amp;token=secret', $base), 'useful query retained, secret masked');
+    inventory_same('unknown', wphm_su_access_level($base . 'media/a.jpg'), 'unfetched URL access is unknown');
+    inventory_same('public', wphm_su_access_level($base, 200, '<p>Public</p>'), 'anonymous 200 recorded as public response');
+    inventory_same('auth', wphm_su_access_level($base, 401), 'HTTP authentication required');
+    inventory_same('denied', wphm_su_access_level($base, 403), 'forbidden response recorded');
+    inventory_same('unknown', wphm_su_access_level($base, 404), '404 does not invent a required role');
+    inventory_same('password', wphm_su_access_level($base, 200, '<form class="post-password-form"><input name="post_password"></form>'), 'post-password form detected');
+    inventory_same('login', wphm_su_access_level(admin_url('/')), 'WordPress admin requires login');
+    inventory_same('unknown', wphm_su_access_level(admin_url('admin-ajax.php')), 'public AJAX route not mislabeled login-only');
+    inventory_same('login', wphm_su_access_level($base . 'member/', 302, '', wp_login_url()), 'redirect to login detected');
     inventory_same(true, wphm_su_is_article(get_permalink($post)), 'post URL excluded');
     inventory_same(true, wphm_su_is_article(get_permalink($page)), 'page URL excluded');
     inventory_same(true, wphm_su_is_article(get_permalink($post) . '?tracking=test'), 'post query variant excluded');
@@ -100,7 +113,7 @@ try {
         $path = wp_parse_url($url, PHP_URL_PATH);
         $code = 200; $headers = ['content-type' => 'text/html'];
         $bodies = [
-            '/' => '<link href="/style.css" rel="stylesheet"><a href="/mystery/custom-endpoint/">Mystery</a><script src="/script.js"></script><a href="/jump/">Jump</a><img src="/media/root.webp"><a href="https://external.invalid/out">External</a>',
+            '/' => '<link href="/style.css" rel="stylesheet"><a href="/mystery/custom-endpoint/">Mystery</a><script src="/script.js"></script><a href="/jump/">Jump</a><img src="/media/root.webp"><img src="/wp-content/uploads/2026/11/crawled.jpg"><a href="https://external.invalid/out">External</a>',
             '/mystery/custom-endpoint/' => '<a href="/only-by-crawling/resource.bin">Unknown file</a><a href="/unknown-kind/">Unknown kind</a><script type="application/ld+json">{"url":"/json-only/"}</script>',
             '/style.css' => 'body{background:url("/fonts/background.webp")} @import "/imported.css";',
             '/imported.css' => '@font-face{src:url(/fonts/site.woff2)}',
@@ -109,13 +122,42 @@ try {
             '/fixture-child.xml' => '<urlset><url><loc>' . $base . 'sitemap-only/opaque</loc></url></urlset>',
         ];
         if ($path === '/jump/') { $code = 302; $headers['location'] = 'http://127.0.0.1/private'; }
+        if ($path === '/upload-redirect/') { $code = 302; $headers['location'] = '/wp-content/uploads/2026/11/redirected.xml'; }
         if (substr($path, -4) === '.xml') $headers['content-type'] = 'application/xml';
         if (substr($path, -4) === '.css') $headers['content-type'] = 'text/css';
         return ['response' => ['code' => $code], 'headers' => $headers, 'body' => $bodies[$path] ?? '<html><body></body></html>'];
     };
+    $excluded = wphm_su_start(true);
+    inventory_same(true, $excluded['filters']['exclude_uploads'], 'upload exclusion captured before collection');
+    inventory_same(true, (bool)get_option('wphm_site_urls_exclude_uploads'), 'last selected exclusion saved');
+    foreach (['/wp-content/uploads', '/wp-content/uploads/', '/wp-content/uploads/2026/11/a.jpg', '/wp-content/uploads/2026/file.pdf?version=2', '/wp-content/%75ploads/a.jpg', '/wp-content/uploads%2F2026/a.jpg', '/wp-content/other/../uploads/a.xml'] as $path) inventory_same(true, wphm_su_is_excluded($base . ltrim($path, '/'), $excluded), 'upload descendant excluded');
+    foreach (['/wp-content/uploads-old/a.jpg', '/another/wp-content/uploads/a.jpg', '/wp-content/uploads/../themes/a.css', '/media/a.jpg', get_permalink($media)] as $path) inventory_same(false, wphm_su_is_excluded(WP_Http::make_absolute_url($path, $base), $excluded), 'non-upload directory or attachment page retained');
+    $before = $excluded['total'];
+    wphm_su_add('/wp-content/uploads/2026/11/direct.pdf', $base, 'fixture', $excluded);
+    inventory_same($before, $excluded['total'], 'excluded URLs do not consume storage limit');
+    inventory_same(0, wphm_su_rows('direct.pdf')['total'], 'excluded URL never stored');
+    $home_row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . wphm_su_table() . ' WHERE url=%s', $base), ARRAY_A);
+    wphm_su_crawl($home_row, $excluded);
+    inventory_same(0, wphm_su_rows('crawled.jpg')['total'], 'HTML discovery uses exclusion');
+    wphm_su_extract('<img src="/wp-content/uploads/2026/11/body.jpg">', $base, '保存本文', $excluded, true);
+    inventory_same(0, wphm_su_rows('body.jpg')['total'], 'saved-body discovery uses exclusion');
+    wphm_su_add('/upload-redirect/', $base, 'fixture', $excluded);
+    $redirect_row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . wphm_su_table() . ' WHERE url=%s', $base . 'upload-redirect/'), ARRAY_A);
+    wphm_su_crawl($redirect_row, $excluded);
+    inventory_same(0, wphm_su_rows('redirected.xml')['total'], 'redirect target uses exclusion');
+    update_option('wphm_site_urls_state', $excluded, false);
+    update_option('wphm_site_urls_exclude_uploads', false, false);
+    $excluded = wphm_su_step($excluded['run']);
+    inventory_same(true, $excluded['filters']['exclude_uploads'], 'resume keeps the original exclusion after preference changes');
+    inventory_same(0, wphm_su_rows('wp-content/uploads/')['total'], 'attachment file excluded during database discovery');
+    $legacy = $excluded; unset($legacy['filters']);
+    inventory_same(false, wphm_su_is_excluded($base . 'wp-content/uploads/legacy.jpg', $legacy), 'legacy scans preserve previous behavior');
     $state = wphm_su_start(); $run = $state['run'];
+    inventory_same(false, $state['filters']['exclude_uploads'], 'unchecked option includes uploads');
+    inventory_same(false, (bool)get_option('wphm_site_urls_exclude_uploads'), 'unchecked preference saved');
     for ($i = 0; $i < 100 && $state['phase'] !== 'done'; $i++) $state = wphm_su_step($run);
     inventory_same('done', $state['phase'], 'batched collection completes');
+    inventory_same(1, wphm_su_rows('crawled.jpg')['total'], 'uploads return when exclusion is unchecked');
     $result = wphm_su_rows('', 1, 10000); $urls = array_column($result['rows'], 'url');
     foreach (['unusual/path/', 'media/a.jpg', 'media/b-small.jpg', 'page-only-file.pdf', 'cpt-only.svg', 'mystery/custom-endpoint/', 'only-by-crawling/resource.bin', 'unknown-kind/', 'fonts/background.webp', 'fonts/site.woff2', 'json-only/', 'sitemap-only/opaque', 'script.js', 'wp-login.php', 'wp-admin/', 'menu-only-target/', 'block-menu-only/'] as $path) {
         if ($path === 'wp-admin/') { $copy = $state; wphm_su_add('/wp-admin/', $base, 'fixture', $copy); $urls = array_column(wphm_su_rows('', 1, 10000)['rows'], 'url'); }
@@ -137,6 +179,23 @@ try {
     inventory_same(true, $copy['limited'], 'maximum discovery count enforced');
     inventory_same(1, wphm_su_rows('only-by-crawling')['total'], 'URL search');
     inventory_same(1, wphm_su_rows('sitemap-only', 9999)['page'], 'pagination clamped safely');
+    foreach (['ASC', 'DESC'] as $direction) {
+        $sorted = wphm_su_rows('', 1, 10000, 'http_status', $direction);
+        $values = array_map('intval', array_column($sorted['rows'], 'http_status')); $expected = $values;
+        if ($direction === 'ASC') sort($expected, SORT_NUMERIC); else rsort($expected, SORT_NUMERIC);
+        inventory_same($expected, $values, 'HTTP status uses numeric sorting');
+        $sorted = wphm_su_rows('', 1, 10000, 'url', $direction);
+        $values = array_column($sorted['rows'], 'url'); $expected = $values;
+        if ($direction === 'ASC') sort($expected, SORT_STRING); else rsort($expected, SORT_STRING);
+        inventory_same($expected, $values, 'URL sorting direction');
+    }
+    foreach (array_keys(wphm_su_columns()) as $key) {
+        $sorted = wphm_su_rows('', 1, 100, $key, 'DESC');
+        inventory_same($key, $sorted['orderby'], 'each displayed column is sortable');
+        inventory_same('', $wpdb->last_error, 'sort expression is valid SQL');
+    }
+    inventory_same(['url', 'ASC'], wphm_su_sort_input(['orderby' => 'url; DROP TABLE x', 'order' => 'DESC; SELECT 1']), 'sort whitelist rejects SQL syntax');
+    inventory_same('access_level', array_keys(wphm_su_columns())[5], 'access rights follow confirmation status');
     ob_start(); wphm_su_render_page(); $url_html = ob_get_clean();
     file_put_contents($root . '/.wphm-test/site-data-urls.html', $url_html);
     file_put_contents($root . '/.wphm-test/site-data-result.json', wp_json_encode(wphm_su_response()));
@@ -157,6 +216,8 @@ try {
     $ajax = function (array $input) { $_POST = $_REQUEST = $input; ob_start(); try { wphm_su_ajax(); } catch (RuntimeException $error) {} return json_decode(ob_get_clean(), true); };
     $nonce = wp_create_nonce('wphm_site_urls');
     inventory_same(true, $ajax(['nonce' => $nonce, 'op' => 'list'])['success'], 'authenticated AJAX list');
+    inventory_same(false, $ajax(['nonce' => $nonce, 'op' => 'start', 'exclude_uploads' => ['1']])['success'], 'malformed exclusion rejected');
+    inventory_same($old_state, get_option('wphm_site_urls_state'), 'invalid exclusion does not delete prior results');
     inventory_same(false, $ajax(['nonce' => $nonce, 'op' => 'invalid'])['success'], 'invalid action rejected');
     inventory_same(false, $ajax(['nonce' => 'invalid', 'op' => 'start']) !== null, 'invalid nonce terminates before JSON result');
     $tools = wphm_get_tool_states(); $tools['site_urls'] = false; update_option('wphm_tool_states', $tools);
@@ -166,6 +227,30 @@ try {
     wp_set_current_user($subscriber);
     inventory_same(false, $ajax(['nonce' => $nonce, 'op' => 'start'])['success'], 'subscriber denied before mutation');
     inventory_same($old_state, get_option('wphm_site_urls_state'), 'denied actions do not reset results');
+    wp_set_current_user((int)$installed['user_id']);
+    $to_clear = wphm_su_start(true);
+    $reply = $ajax(['nonce' => $nonce, 'op' => 'clear', 'run' => $to_clear['run']]);
+    inventory_same(true, $reply['data']['cleared'], 'leaving deletes current results');
+    inventory_same(0, (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table()), 'URL table empty after departure');
+    inventory_same(false, get_option('wphm_site_urls_state'), 'run state removed on departure');
+    inventory_same(true, (bool)get_option('wphm_site_urls_exclude_uploads'), 'departure retains exclusion preference');
+    $new_run = wphm_su_start(false);
+    inventory_same(false, $ajax(['nonce' => $nonce, 'op' => 'clear', 'run' => $to_clear['run']])['data']['cleared'], 'old tab cannot clear a new run');
+    inventory_same($new_run['run'], get_option('wphm_site_urls_state')['run'], 'newer scan protected');
+    $lock = 'wphm_su_' . substr(hash('sha256', DB_NAME . ':' . wphm_su_table()), 0, 40);
+    $connection->query("SELECT GET_LOCK('{$lock}', 0)");
+    $pending = $ajax(['nonce' => $nonce, 'op' => 'clear', 'run' => $new_run['run']]);
+    inventory_same(true, $pending['data']['pending'], 'busy scan accepts deferred deletion');
+    $connection->query("SELECT RELEASE_LOCK('{$lock}')");
+    inventory_same([], wphm_su_step($new_run['run']), 'next batch honors deferred deletion');
+    inventory_same(0, (int)$wpdb->get_var('SELECT COUNT(*) FROM ' . wphm_su_table()), 'deferred deletion removes all URLs');
+    $cross_request = wphm_su_start(false);
+    inventory_same(false, wphm_su_has_clear_request($cross_request['run']), 'missing clear request initially cached');
+    $connection->select_db($database);
+    $key = '_transient_wphm_su_clear_' . $cross_request['run'];
+    $connection->query($wpdb->prepare("INSERT INTO {$wpdb->options} (option_name,option_value,autoload) VALUES (%s,'1','no')", $key));
+    inventory_same(true, wphm_su_has_clear_request($cross_request['run']), 'clear signal from another request bypasses stale option cache');
+    inventory_same([], wphm_su_step($cross_request['run']), 'cross-request clear honored before new HTTP');
     echo "PASS: {$checks} native WordPress post-data and URL-inventory assertions.\n";
 } finally {
     $connection->query("DROP DATABASE `{$database}`");
