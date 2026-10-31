@@ -24,6 +24,9 @@ if (wphm_is_tool_enabled('comment_manager')) {
 
 // 管理画面のときだけ読み込む（本番テストでも影響最小）
 if (is_admin()) {
+    if (wphm_is_tool_enabled('security_check')) {
+        require_once __DIR__ . '/../tools/security_check/security_check.php';
+    }
     if (wphm_is_tool_enabled('site_urls')) {
         require_once __DIR__ . '/../tools/site_urls/site_urls.php';
     }

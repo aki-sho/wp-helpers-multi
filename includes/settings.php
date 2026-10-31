@@ -99,6 +99,18 @@ function wphm_get_tool_definitions(): array {
             'load_callback' => 'wphm_access_log_handle_request',
             'default'     => true,
         ],
+        'security_check' => [
+            'label' => 'セキュリティチェック',
+            'description' => '設定・更新情報・既存ログを読み取り、10種類の攻撃に関する確認結果を表示します。',
+            'icon' => 'dashicons-shield',
+            'group' => 'management',
+            'menu_title' => 'セキュリティチェック',
+            'page_title' => 'セキュリティチェック',
+            'slug' => 'wphm-security-check',
+            'callback' => 'wphm_sc_render',
+            'load_callback' => 'wphm_sc_handle_request',
+            'default' => true,
+        ],
         'post_data' => [
             'label'       => '投稿データ',
             'description' => '記事情報や閲覧数を一覧・並び替え・CSV出力します。',
