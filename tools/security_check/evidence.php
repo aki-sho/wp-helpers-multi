@@ -18,7 +18,7 @@ function wphm_sc_evidence_html(array $facts): void {
     }
     if ($files) {
         $lines[]='アップロード先の読取り：' . min(500,$files['scanned']) . '項目、スクリプト形式 ' . $files['scripts'] . '件、上限・読取り不能・リンク除外 ' . ($files['limited'] ? 'あり' : 'なし') . '。最大40ディレクトリ・500項目で停止し、ファイル内容は読みません。';
-        $lines[]='現在の利用者に許可された実行形式：' . ($files['executable_types'] ? implode(', ',$files['executable_types']) : '該当なし') . '。.htaccessの禁止記述候補 ' . ($files['rule_hint'] ? 'あり' : '未確認') . '。記述の存在からサーバーの実効設定は推測しません。';
+        $lines[]='現在の利用者に許可された実行形式：' . (empty($files['types_checked']) ? '取得失敗' : ($files['executable_types'] ? implode(', ',$files['executable_types']) : '確認した形式に該当なし')) . '。.htaccessの禁止記述候補 ' . ($files['rule_hint'] ? 'あり' : '未確認') . '。記述の存在からサーバーの実効設定は推測しません。';
         $lines[]='登録された公開AJAX ' . $files['public_ajax'] . '件（アップロード機能かは未監査）。有効な既知のコード追加機能：' . ($files['code_tools'] ? implode(', ',$files['code_tools']) : '検出なし・独自機能は未確認') . '。';
     }
     if ($audit) {
@@ -33,7 +33,10 @@ function wphm_sc_evidence_html(array $facts): void {
     }
     $php=$facts['updates']['php'];
     $lines[]='PHPサポートの参照元：' . ($php['source'] ?? '未確認') . '。取得日時 ' . (!empty($php['checked_at']) ? wphm_format_timestamp($php['checked_at']) : '未確認') . '。';
-    if ($cf) $lines[]='Cloudflare：' . $cf['state'] . '。取得日時 ' . ($cf['checked_at'] ? wphm_format_timestamp($cf['checked_at']) : '未確認') . '。統計が取得できてもDDoS耐性全体は未確認です。';
+    if ($cf) {
+        $lines[]='Cloudflare：' . $cf['state'] . '。取得日時 ' . ($cf['checked_at'] ? wphm_format_timestamp($cf['checked_at']) : '未確認') . '。統計が取得できてもDDoS耐性全体は未確認です。';
+        $lines[]='WAF遮断記録：' . (($cf['blocked'] ?? null)===null ? '取得失敗・未設定' : '最大100件の直近サンプル中 '.$cf['blocked'].'件／取得 '.$cf['events'].'件') . '。取得期間は直近の完了した24時間です。個々のIP・URL・利用者情報は取得・保存しません。';
+    }
     foreach ($lines as $line) echo '<p>' . esc_html($line) . '</p>';
     echo '</details>';
     echo '<details class="wphm-panel wphm-sc-details wphm-sc-vulnerabilities"><summary>既知脆弱性の照合結果・対象製品</summary>';
@@ -47,7 +50,11 @@ function wphm_sc_evidence_html(array $facts): void {
         echo '</article>';
     }
     if (empty($vulns['matches'])) echo '<p>表示できる影響版候補はありません。未照合の製品・通信失敗・情報不足は別に確認してください。</p>';
-    foreach ($vulns['components'] ?? [] as $component) echo '<p>' . esc_html('照合済み：' . $component['name'] . ' ' . $component['version'] . '／' . wphm_format_timestamp($component['checked_at']) . '／条件不明 ' . $component['unresolved'] . '件') . '</p>';
+    $statuses=['checked'=>'照合済み','conditional'=>'条件・表示範囲に未確認あり','failed'=>'取得失敗','pending'=>'照合待ち','unsupported'=>'確認範囲外','disabled'=>'要設定'];
+    echo '<ul class="wphm-sc-products">';
+    foreach ($vulns['products'] ?? [] as $product) echo '<li><strong>' . esc_html($product['name'].' '.$product['version']) . '</strong><span>' . esc_html(($statuses[$product['status']] ?? '未確認').'：'.$product['reason']) . '</span><small>' . esc_html($product['checked_at'] ? '情報取得 '.wphm_format_timestamp($product['checked_at']) : '情報取得日時なし') . '</small></li>';
+    echo '</ul>';
+    if(!empty($vulns['limited'])) echo '<p>製品数または保存容量の上限に達しています。上限外の製品・省略した情報を安全とは判定しません。</p>';
     foreach ($facts['inventory'] ?? [] as $group=>$items) {
         $labels=['plugins'=>'プラグイン','themes'=>'テーマ','mu_plugins'=>'MUプラグイン','dropins'=>'ドロップイン'];
         echo '<h3>' . esc_html($labels[$group] ?? $group) . '</h3><ul>';

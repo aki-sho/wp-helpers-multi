@@ -1,11 +1,20 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
+class WPHM_Security_Check_Exception extends RuntimeException {}
+
+function wphm_sc_failure_message(Throwable $error): string {
+    return $error instanceof WPHM_Security_Check_Exception ? $error->getMessage() : '確認処理でエラーが発生しました。設定・連携先を確認して再チェックしてください。内部のエラー情報は表示しません。';
+}
+
 require_once __DIR__ . '/options.php';
 require_once __DIR__ . '/integrations.php';
+require_once __DIR__ . '/vulnerabilities.php';
+require_once __DIR__ . '/providers.php';
 require_once __DIR__ . '/local.php';
 require_once __DIR__ . '/facts.php';
 require_once __DIR__ . '/rules.php';
+require_once __DIR__ . '/assessment.php';
 require_once __DIR__ . '/evidence.php';
 require_once __DIR__ . '/admin.php';
 

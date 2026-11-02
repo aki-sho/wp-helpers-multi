@@ -1,0 +1,42 @@
+<?php
+if (!defined('ABSPATH')) exit;
+
+/** Read documented provider methods; never change enrollment or authentication filters. */
+function wphm_sc_mfa_for_user(WP_User $user): array {
+    $out=['known'=>false,'enabled'=>false,'error'=>false,'providers'=>[]];
+    if(is_callable(['Two_Factor_Core','is_user_using_two_factor']) && is_callable(['Two_Factor_Core','get_primary_provider_for_user'])) {
+        try {
+            $provider=Two_Factor_Core::get_primary_provider_for_user($user->ID);
+            $using=Two_Factor_Core::is_user_using_two_factor($user->ID);
+            if(is_wp_error($provider) || !is_bool($using) || ($provider!==false && $provider!==null && !is_object($provider))) $out['error']=true;
+            else {
+                $out['enabled']=$provider && !is_a($provider,'Two_Factor_Dummy') && $using;
+                $out['known']=true; $out['providers'][]='Two-Factor';
+            }
+        } catch(Throwable $error) { $out['error']=true; }
+    }
+    if(is_callable(['WordfenceLS\\Controller_Users','shared'])) {
+        try {
+            $controller=\WordfenceLS\Controller_Users::shared();
+            if(is_callable([$controller,'has_2fa_active'])) {
+                $enabled=$controller->has_2fa_active($user);
+                if(is_bool($enabled)) { $out['known']=true; $out['enabled']=$out['enabled'] || $enabled; $out['providers'][]='Wordfence Login Security'; }
+                else $out['error']=true;
+            } else $out['error']=true;
+        } catch(Throwable $error) { $out['error']=true; }
+    }
+    return $out;
+}
+
+function wphm_sc_wordfence_limiter(?bool &$failed=null): ?array {
+    $failed=false;
+    if(!is_callable(['wfConfig','get']) || has_filter('authenticate','wordfence::authenticateFilter')===false) return null;
+    try {
+        if(!\wfConfig::get('loginSecurityEnabled')) return null;
+        $tries=\wfConfig::get('loginSec_maxFailures');
+        $minutes=\wfConfig::get('loginSec_lockoutMins');
+        if(is_numeric($tries) && is_numeric($minutes) && $tries>=1 && $tries<=100 && $minutes>=1 && $minutes<=1440) return ['name'=>'Wordfence','tries'=>(int)$tries,'seconds'=>(int)$minutes*60];
+        $failed=true;
+    } catch(Throwable $error) { $failed=true; return null; }
+    return null;
+}

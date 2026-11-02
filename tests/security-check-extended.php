@@ -218,11 +218,16 @@ sc_same($before,count($calls),'native settings save sends no external requests')
 sc_same(true,isset($GLOBALS['wphm_sc_page_message']),'native settings save acknowledged');
 
 // Generate browser fixtures with all risk labels; these remain explicitly simulated test data.
+require __DIR__.'/security-check-results.php';
 $display=wphm_sc_collect(false); $display['facts']['registration']=true; $display['facts']['raw_html']=true; $display['facts']['file_uploads']=false;
-$display['facts']['telemetry']=$observed; $display['items']=wphm_sc_assess($display['facts']);
+$display['facts']['telemetry']=$observed;
+// Explicitly simulate traffic waiting so all four render states remain covered after richer assessments.
+foreach(['requests','peak','errors','recent_requests'] as $key) $display['facts']['telemetry'][$key]=0;
+$display['items']=wphm_sc_assess($display['facts']);
+foreach(array_keys(wphm_sc_levels()) as $level) sc_same(true,in_array($level,array_column($display['items'],'level'),true),'browser fixture explicitly covers result level '.$level);
 $GLOBALS['wphm_sc_page_report']=$display; unset($GLOBALS['wphm_sc_page_error']);
 ob_start(); wphm_sc_render(); $page=ob_get_clean();
 file_put_contents($root.'/.wphm-test/security-check-page.html',$page);
 ob_start(); wphm_sc_report_html($display); $report_html=ob_get_clean();
-file_put_contents($root.'/.wphm-test/security-check-ajax.json',wp_json_encode(['success'=>true,'data'=>['html'=>$report_html]]));
+file_put_contents($root.'/.wphm-test/security-check-ajax.json',wp_json_encode(['success'=>true,'data'=>['html'=>$report_html,'scan'=>['run'=>'','pending'=>0,'auto'=>false,'stopped'=>false]]]));
 sc_same(false,strpos($page,$token)!==false,'full rendered page contains no API credential');

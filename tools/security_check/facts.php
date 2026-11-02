@@ -143,13 +143,16 @@ function wphm_sc_update_facts(array $inventory, bool $refresh): array {
     return $result;
 }
 
-function wphm_sc_collect(bool $refresh = false): array {
-    $GLOBALS['wphm_sc_deadline'] = microtime(true) + 25;
+function wphm_sc_collect(bool $refresh = false, bool $continuing = false, array $context = []): array {
+    global $wp_version;
+    $GLOBALS['wphm_sc_deadline'] = microtime(true) + ($continuing ? 12 : 25);
     wphm_sc_telemetry_schema();
     $role = get_role((string)get_option('default_role', 'subscriber'));
     $file_edit_disabled = (defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT) || (defined('DISALLOW_FILE_MODS') && DISALLOW_FILE_MODS);
     $file_uploads = ini_get('file_uploads');
     $inventory = wphm_sc_inventory();
+    $fingerprint=hash('sha256',wp_json_encode([WPHM_VERSION,(string)$wp_version,PHP_VERSION,$inventory,get_option('active_plugins',[]),get_site_option('active_sitewide_plugins',[]),get_stylesheet(),get_option('wphm_sc_revision','')]));
+    if($continuing && (!is_string($context['fingerprint'] ?? null) || !hash_equals($context['fingerprint'],$fingerprint))) throw new WPHM_Security_Check_Exception('照合中に製品・設定が変更されました。再チェックしてください。');
     $facts = [
         'registration' => !is_multisite() && (bool)get_option('users_can_register', false),
         'raw_html' => !is_multisite() && !(defined('DISALLOW_UNFILTERED_HTML') && DISALLOW_UNFILTERED_HTML) && $role && $role->has_cap('unfiltered_html') && ($role->has_cap('edit_posts') || $role->has_cap('edit_pages')),
@@ -160,17 +163,17 @@ function wphm_sc_collect(bool $refresh = false): array {
         'file_uploads' => $file_uploads === false ? null : filter_var($file_uploads, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
         'https' => wp_parse_url(home_url('/'), PHP_URL_SCHEME) === 'https' && wp_parse_url(site_url('/'), PHP_URL_SCHEME) === 'https',
         'logs' => wphm_sc_log_facts(),
-        'updates' => wphm_sc_update_facts($inventory, $refresh),
+        'updates' => wphm_sc_update_facts($inventory, $refresh && !$continuing),
         'telemetry' => wphm_sc_telemetry_facts(),
         'identity' => wphm_sc_identity_facts(),
         'files' => wphm_sc_file_facts($inventory),
         'audit' => wphm_sc_audit_facts(),
-        'vulnerabilities' => wphm_sc_vulnerabilities($inventory, $refresh),
-        'cloudflare' => wphm_sc_cloudflare($refresh),
+        'cloudflare' => wphm_sc_cloudflare($refresh && !$continuing),
+        'vulnerabilities' => wphm_sc_vulnerabilities($inventory, $refresh, is_string($context['id'] ?? null)?$context['id']:''),
     ];
     $options = wphm_sc_options();
     $facts['server'] = array_intersect_key($options, array_flip(['uploads_execution','vendor_patches','evidence','attested_at']));
     $facts['inventory'] = [];
     foreach (['plugins','themes','mu_plugins','dropins'] as $group) $facts['inventory'][$group] = array_values(array_map(function ($item) { return ['name'=>$item['Name'],'version'=>$item['Version']]; }, $inventory[$group]));
-    return ['checked_at' => time(), 'refreshed' => $refresh, 'facts' => $facts, 'items' => wphm_sc_assess($facts)];
+    return ['schema'=>2,'fingerprint'=>$fingerprint,'checked_at' => time(), 'refreshed' => $refresh, 'facts' => $facts, 'items' => wphm_sc_assess($facts)];
 }

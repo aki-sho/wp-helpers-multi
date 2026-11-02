@@ -4,18 +4,22 @@ const http = require('node:http');
 const path = require('node:path');
 const { chromium } = require(path.join(process.env.WPHM_NODE_MODULES, 'playwright'));
 const root = path.resolve(__dirname, '..');
-let checks = 0, failure = '', requests = [];
+let checks = 0, failure = '', requests = [], scanMode = '';
 const same = (actual, expected, label) => { assert.deepEqual(actual, expected, label); checks++; };
 const files = new Map([['/admin.css', 'assets/css/admin-modern.css'], ['/security.css', 'assets/css/security-check.css'], ['/security.js', 'assets/js/security-check.js']]);
 const server = http.createServer(async (request, response) => {
+  if (request.url === '/empty') { response.end('<!doctype html><title>Left check page</title>'); return; }
   if (request.url === '/ajax') {
     let body = ''; for await (const part of request) body += part;
-    requests.push(Object.fromEntries(new URLSearchParams(body)));
-    await new Promise(resolve => setTimeout(resolve, 200));
+    const parameters=Object.fromEntries(new URLSearchParams(body)); requests.push(parameters);
+    await new Promise(resolve => setTimeout(resolve, scanMode==='inflight' && parameters.operation==='continue' ? 800 : 200));
     if (failure === 'json') { response.end('<html>not JSON</html>'); return; }
     response.setHeader('Content-Type', 'application/json');
     if (failure) { response.statusCode = 403; response.end(JSON.stringify({ success: false, data: { message: '権限がないか、nonceが失効しています。' } })); return; }
-    response.end(fs.readFileSync(path.join(root, '.wphm-test/security-check-ajax.json'))); return;
+    const result=JSON.parse(fs.readFileSync(path.join(root, '.wphm-test/security-check-ajax.json'),'utf8'));
+    if(scanMode && parameters.operation==='recheck') result.data.scan={run:'a'.repeat(32),pending:5,auto:true,stopped:false};
+    if(scanMode==='malformed') result.data.scan={run:'javascript:bad',pending:5,auto:true,stopped:false};
+    response.end(JSON.stringify(result)); return;
   }
   if (files.has(request.url)) {
     response.setHeader('Content-Type', request.url.endsWith('.js') ? 'application/javascript' : 'text/css');
@@ -37,6 +41,8 @@ const server = http.createServer(async (request, response) => {
     same(await page.locator('.wphm-sc-summary>div').count(), 4, 'four status totals');
     same(await page.locator('.wphm-sc-item p strong').count(), 20, 'state and reason for every category');
     same(await page.locator('.wphm-sc-item .wphm-sc-scope').count(), 10, 'scope of every result visible');
+    same(await page.locator('.wphm-sc-checks').count(),5,'five focus items show individual check lists');
+    same(await page.locator('.wphm-sc-coverage[aria-label]').count(),5,'check coverage separate from categorical risk');
     same(await page.locator('time[datetime]').count(), 1, 'check timestamp visible');
     same(requests.length, 0, 'page view does not initiate a recheck');
     same(await page.locator('.wphm-page-header').count(), 1, 'common plugin header');
@@ -50,7 +56,10 @@ const server = http.createServer(async (request, response) => {
     same(widths.low < widths.medium && widths.medium < widths.high, true, 'bars represent low/middle/high levels');
     same(await page.locator('.wphm-sc-item.wphm-sc-unknown [role="meter"]').count(), 0, 'unknown never shown as a zero-risk meter');
     same(await page.locator('.wphm-sc-item.wphm-sc-unknown [role="img"]').count() > 0, true, 'unknown explicitly labeled');
+    same(await page.locator('.wphm-sc-item.wphm-sc-unknown .wphm-sc-bar>span').first().evaluate(node=>node.getBoundingClientRect().width>100),true,'unknown graph has a visible full-width bar');
+    same(await page.locator('.wphm-sc-item.wphm-sc-unknown .wphm-sc-bar small').first().textContent(),'未確認','unknown state visibly printed inside bar');
     await page.screenshot({ path: path.join(root, '.wphm-test/security-check-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(root, '.wphm-test/security-check-desktop-top.png') });
     const nonce = await page.locator('#wphm-sc-form input[name="nonce"]').inputValue();
     await page.locator('#wphm-sc-recheck').click();
     same(await page.locator('#wphm-sc-recheck').isDisabled(), true, 'recheck prevents double submission');
@@ -97,9 +106,50 @@ const server = http.createServer(async (request, response) => {
     same(await page.locator('input[name="cf_token"]').inputValue(),'','credential field always blank');
     same(await page.locator('select[name="uploads_execution"] option').count(),3,'server attestations include unknown');
     same(await page.locator('.wphm-sc-settings input[name="nonce"]').count(),1,'settings protected by native form nonce');
+    same(await page.locator('.wphm-sc-settings input[type="number"]').count(),5,'bounded observation thresholds configurable');
     same(await page.evaluate(() => document.documentElement.scrollWidth<=window.innerWidth),true,'expanded settings fit mobile');
     await page.screenshot({ path: path.join(root, '.wphm-test/security-check-mobile.png'), fullPage: true });
+    await page.evaluate(()=>window.scrollTo(0,0));
     await page.screenshot({ path: path.join(root, '.wphm-test/security-check-mobile-top.png') });
+    await page.locator('.wphm-sc-settings summary').click();
+    await page.locator('.wphm-sc-settings-link').first().click();
+    same(await page.locator('.wphm-sc-settings').getAttribute('open')!==null,true,'per-item setting link opens the settings panel');
+    await page.setViewportSize({width:1440,height:1100});
+    let before=requests.length;
+    scanMode='auto'; await page.locator('#wphm-sc-recheck').click();
+    await page.waitForFunction(()=>document.querySelector('#wphm-sc-status').textContent.includes('再チェックが完了'));
+    same(requests.length-before,2,'one click automatically continues remaining products');
+    same(requests.at(-2).operation,'recheck','first request is explicit recheck');
+    same(requests.at(-1).operation,'continue','next request is bounded continuation');
+    same(requests.at(-1).run,'a'.repeat(32),'continuation carries authorized run token');
+    same(requests.at(-1).nonce,nonce,'continuation retains nonce protection');
+    same(await page.locator('#wphm-sc-pause').isHidden(),true,'pause control removed at completion');
+    scanMode='pause'; before=requests.length; await page.locator('#wphm-sc-recheck').click();
+    await page.locator('#wphm-sc-pause').waitFor({state:'visible'}); await page.locator('#wphm-sc-pause').click();
+    await new Promise(resolve=>setTimeout(resolve,2800));
+    same(requests.length-before,1,'pause cancels queued automatic continuation');
+    same(await page.locator('#wphm-sc-resume').isVisible(),true,'paused run can resume');
+    await page.locator('#wphm-sc-resume').click();
+    await page.waitForFunction(()=>document.querySelector('#wphm-sc-status').textContent.includes('再チェックが完了'));
+    same(requests.length-before,2,'resume continues without restarting completed work');
+    const beforeMalformed=await page.locator('#wphm-sc-report').innerHTML();
+    scanMode='malformed'; before=requests.length; await page.locator('#wphm-sc-recheck').click();
+    await page.waitForFunction(()=>document.querySelector('#wphm-sc-error').textContent.includes('進行情報'));
+    same(await page.locator('#wphm-sc-report').innerHTML(),beforeMalformed,'malformed scan metadata never replaces previous report');
+    await new Promise(resolve=>setTimeout(resolve,2700));
+    same(requests.length-before,1,'malformed scan never starts automatic requests');
+    scanMode='auto'; before=requests.length; await page.locator('#wphm-sc-recheck').click();
+    await page.locator('#wphm-sc-pause').waitFor({state:'visible'}); await page.goto(`http://127.0.0.1:${server.address().port}/empty`);
+    await new Promise(resolve=>setTimeout(resolve,2800));
+    same(requests.length-before,1,'leaving page stops scheduled continuation');
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    scanMode='inflight'; before=requests.length; await page.locator('#wphm-sc-recheck').click();
+    const deadline=Date.now()+10000;
+    while(requests.length-before<2 && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,30));
+    same(requests.length-before,2,'continuation request started before navigation');
+    await page.goto(`http://127.0.0.1:${server.address().port}/empty`);
+    await new Promise(resolve=>setTimeout(resolve,1100));
+    same(requests.length-before,2,'in-flight response after page exit cannot schedule new work');
     same(errors, [], 'no browser runtime errors');
     console.log(`PASS: ${checks} security-check browser assertions.`);
   } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

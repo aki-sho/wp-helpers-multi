@@ -143,7 +143,7 @@ function wphm_sc_application_failed($error): void { wphm_sc_auth_event('', false
 
 function wphm_sc_telemetry_facts(): array {
     global $wpdb;
-    $out = ['available' => false, 'started' => (int)get_option('wphm_sc_counts_started', 0), 'minutes' => 0, 'from' => 0, 'to' => 0, 'peak' => 0, 'auth_peak' => 0, 'focused_failures' => 0, 'saturated' => false];
+    $out = ['available' => false, 'started' => (int)get_option('wphm_sc_counts_started', 0), 'minutes' => 0, 'from' => 0, 'to' => 0, 'peak' => 0, 'auth_peak' => 0, 'focused_failures' => 0, 'saturated' => false, 'recent_requests'=>0, 'baseline_requests'=>0, 'baseline_minutes'=>0];
     foreach (['requests','failures','successes','after_failure','sql_hits','xss_hits','traversal_hits','errors','truncated'] as $field) $out[$field] = 0;
     if (get_option('wphm_sc_counts_schema') !== '1') return $out;
     $now = intdiv(time(), 60); $previous = $wpdb->suppress_errors(true);
@@ -160,9 +160,12 @@ function wphm_sc_telemetry_facts(): array {
         }
         $out['peak'] = max($out['peak'], (int)$row['requests']);
         $out['auth_peak'] = max($out['auth_peak'], (int)$row['failures']);
+        if ((int)$row['epoch']>$now-10) $out['recent_requests']+=(int)$row['requests'];
+        elseif ((int)$row['epoch']>$now-370) $out['baseline_requests']+=(int)$row['requests'];
     }
     $out['minutes'] = count($rows);
     if ($rows) { $out['from'] = (int)$rows[0]['epoch'] * 60; $out['to'] = (int)$rows[count($rows)-1]['epoch'] * 60 + 59; }
+    $out['baseline_minutes']=max(0,min(360,$now-10-(int)floor($out['started']/60)));
     return $out;
 }
 

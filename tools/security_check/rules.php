@@ -27,7 +27,7 @@ function wphm_sc_assess(array $facts): array {
         $items['brute_force']['level']='medium';
         $items['brute_force']['reason']='認証失敗の集中を観測しました。1分20件以上、または共有枠で5分10件以上を注意の基準とします。正当な操作・共有回線・枠の衝突もあり、攻撃と断定しません。';
     }
-    $mfa=($identity['mfa_known'] ?? 0)>0 ? '確認した管理者' . $identity['admins'] . '人中、Two-Factor設定を取得できた' . $identity['mfa_known'] . '人、要求あり' . $identity['mfa_enabled'] . '人。' : '管理者の追加認証は未確認です。対応するTwo-Factor連携から設定を取得します。';
+    $mfa=($identity['mfa_known'] ?? 0)>0 ? '確認した管理者' . $identity['admins'] . '人中、対応する追加認証の設定を取得できた' . $identity['mfa_known'] . '人、有効' . $identity['mfa_enabled'] . '人。' : '管理者の追加認証は未確認です。対応する認証機能から設定を取得します。';
     $add('credential_stuffing','クレデンシャルスタッフィング攻撃','追加認証の要求・認証経路・失敗後の成功',$mfa . $auth,'漏えいパスワードの収集・解析・照合は行いません。2FAの要求は現在の要求条件で確認した設定です。SSO・XML-RPC・REST等への適用を一律には推測しません。');
     if (($identity['mfa_known'] ?? 0)>($identity['mfa_enabled'] ?? 0) || ($telemetry['available'] && $telemetry['after_failure']>0)) {
         $items['credential_stuffing']['level']='medium';
@@ -79,5 +79,8 @@ function wphm_sc_assess(array $facts): array {
         $items['vulnerability_exploit']['level']='high'; $items['vulnerability_exploit']['reason']='識別名とインストール版が既知脆弱性の影響条件に一致する候補があります。下の情報源・影響範囲・修正版・必要権限を確認してください。実際の悪用・侵害は未確認です。';
         foreach ($match['cwe'] as $cwe) if (isset($mapping[$cwe])) { $id=$mapping[$cwe]; $items[$id]['level']='high'; $items[$id]['reason']='既知脆弱性データの分類と影響版条件が一致する候補があります。製品の同定・成立条件・修正版を下の詳細で確認してください。攻撃試験は行っていません。'; }
     }
-    return array_values($items);
+    // Keep classifications from findings beyond the bounded detail list.
+    if(!empty($vulns['affected'])) { $items['vulnerability_exploit']['level']='high'; $items['vulnerability_exploit']['reason']='識別名とインストール版が既知脆弱性の影響条件に一致する候補があります。表示件数の上限外も含めて検出しました。製品・成立条件・修正版を照合結果で確認してください。'; }
+    foreach($vulns['cwe'] ?? [] as $cwe) if(isset($mapping[$cwe])) { $id=$mapping[$cwe]; $items[$id]['level']='high'; $items[$id]['reason']='影響版候補に該当する既知脆弱性の分類があります。表示件数の上限外も含めた判定です。製品と成立条件を照合結果で確認してください。'; }
+    return array_values(wphm_sc_focus_assessment($facts,$items));
 }

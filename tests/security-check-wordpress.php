@@ -105,7 +105,7 @@ try {
         foreach (['brute_force', 'credential_stuffing', 'ddos'] as $key) sc_same('unknown', $items[$key]['level'], 'insufficient evidence never guessed: ' . $key);
         foreach (['sql_injection','xss','csrf','directory_traversal'] as $key) sc_same('low',$items[$key]['level'],'low is scoped to the exact reviewed plugin files: '.$key);
         sc_same('medium', $items['rce']['level'], 'current admin code-edit permission is a scoped hardening concern');
-        sc_same('unknown', $items['file_upload']['level'], 'default upload restrictions do not prove all upload handlers safe');
+        sc_same('low', $items['file_upload']['level'], 'confirmed standard type and size restrictions have explicitly limited low scope');
         sc_same('unknown', $items['vulnerability_exploit']['level'], 'missing update data never considered safe');
         $serialized = wp_json_encode($local);
         foreach (['private_secret', 'secret.invalid', '198.51.100.50', '<script>untrusted'] as $secret) sc_same(false, strpos($serialized, $secret) !== false, 'report contains aggregates only');
@@ -120,7 +120,7 @@ try {
         wphm_sc_collect();
         sc_same(0, count($calls), 'reading populated update data bypasses updater filters and HTTP');
         $fresh = wphm_sc_collect(true); $fresh_items = array_column($fresh['items'], null, 'id');
-        sc_same('unknown', $fresh_items['vulnerability_exploit']['level'], 'latest versions do not prove no vulnerabilities');
+        sc_same('low', $fresh_items['vulnerability_exploit']['level'], 'complete public-product comparison without a match has explicitly limited low scope');
         sc_same(0, $fresh['facts']['updates']['plugins']['pending'], 'fresh API result used instead of previous update flag');
         sc_same(1, $fresh['facts']['updates']['plugins']['unknown'], 'private update provider remains unverified');
         sc_same($before_updates, serialize(get_site_transient('update_plugins')), 'standard WordPress update notifications untouched');
@@ -152,6 +152,7 @@ try {
         $api_mode = 'old_php';
         sc_same('high', array_column(wphm_sc_collect(true)['items'], 'level', 'id')['rce'], 'upstream PHP support warning raises high');
         foreach (['failure', 'invalid', 'oversize', 'redirect'] as $failure) {
+            delete_option('wphm_sc_vulnerability_metadata');
             $api_mode = $failure; $failed = wphm_sc_collect(true);
             sc_same('unknown', array_column($failed['items'], 'level', 'id')['vulnerability_exploit'], 'failed remote check is unknown: ' . $failure);
             sc_same(false, $failed['facts']['updates']['php']['known'], 'PHP support unverified on API failure: ' . $failure);

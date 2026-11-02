@@ -1,5 +1,5 @@
 {
-  "version": "0.10.0",
+  "version": "0.10.1",
   "groups": [
     "SQL：アクセスログ・IP拒否・検索置換・投稿データ・サイト内URL一覧・セキュリティ集計の値パラメータ、固定識別子、並び替え許可リストを確認。",
     "XSS：全ツールの管理画面、履歴・CSV、URL表示、JavaScriptへのデータ引渡しを確認。エスケープした出力と文字列サイズ制限の回帰検証を実施。",
@@ -17,7 +17,7 @@
     "assets/js/link-inspector.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "assets/js/qr.js": "da56672ea3c679ba1c97a0c557a74fae7733d82ac76c2393b9103269845adf9c",
     "assets/js/search-replace.js": "cc978bea191e702824b2166424e6fea38c7c96cc09adf95b3ca3ba71f6913559",
-    "assets/js/security-check.js": "e7eafd2566ed31e5c8352dc18585ab167654c2baf1ecbd0603268fb793aef4b8",
+    "assets/js/security-check.js": "a37461db46b2e6880a209c5a496afa0aa55c725a35ced7993b7aea46ec168643",
     "assets/js/site-urls.js": "959e6828c1e1d6e5f5b42e5dfe9381d000219d620837a9c04e1325b5df18798d",
     "assets/js/timer.js": "338fdf4fd3485c9b7c834959d3e5d40d0fee3c1a2fcf6d69418de0adca6f25ab",
     "includes/admin.php": "55d94c05f6c8cba9fe942c787ace71aced9b91ddb91fcb8b14c5db37a6680a3d",
@@ -62,15 +62,18 @@
     "tools/search_replace/editor.php": "a926e85377e244ef45d69a7ed201709daeb52b0f729689e265f6dcbaca6eaf9c",
     "tools/search_replace/schema/table.php": "40f71ffa458ecaf221d520fb4cb418d35c1f131e0f207c797ee61e138b06799c",
     "tools/search_replace/search_replace.php": "1ec4c93053195ef060844e46a398c1fc90d138a9ec59369c6d123e0be59807d6",
-    "tools/security_check/admin.php": "42b7f11ced4dfedd4039e37b1a46029b7add40d1d4962ef54701b70610ba4b2b",
-    "tools/security_check/evidence.php": "ae1cf799793db3ac12bb92ceba58d6979958769a3143ef9847990ba487bb8c5d",
-    "tools/security_check/facts.php": "56fa42c0dd2f1e67f923991c2a7bd634a910c369b801cf763c200244ed5f7cb5",
-    "tools/security_check/integrations.php": "7787c15aadc7baa1adc1515ddc6e783be732ebf068d1929cf646775bbfe2e9eb",
-    "tools/security_check/local.php": "2127caa5a86ac46dc93d04ac96ba724e721bbf077e523dd3a12537460b290608",
-    "tools/security_check/options.php": "b3baf3e84ec5b2654dcd49a4b346a5b08c60888be095504eced1e5e6011cf13b",
-    "tools/security_check/rules.php": "66e68cc8a2600f6c5177cbbf78bf054ecee1cc97c0c4c34232b8229bb5b6ff49",
-    "tools/security_check/security_check.php": "40a43158f6a2f79fc6da1d613c5ca5879b2705fbde14c745e51888899736c19e",
-    "tools/security_check/telemetry.php": "699276a5565f30e60df15a0823757572c7a28f8b33c2d6a5815894ea7ed8136d",
+    "tools/security_check/admin.php": "25695c81c6ec8d426fcf576a0ffd728d60e1f11fdc2e961c275a59229184f1f8",
+    "tools/security_check/assessment.php": "821a39e6e504208f82a7cb60e13b23629350d96b3878b08410128321839f21b9",
+    "tools/security_check/evidence.php": "7f4ae8d76189b46e00ea0681137b963c6e633fa54805d35925fa374b796c2471",
+    "tools/security_check/facts.php": "bf69f71814801d8551a79f6ab248300826567fb136d6e2887c1b810f653c3c16",
+    "tools/security_check/integrations.php": "cdb63d03903e1645f57dc8ee7d907e4006ec73077a08d33b4a9768849ec46df3",
+    "tools/security_check/local.php": "937ce8d3485c6a10a992e216264a6ac345e8dd354ea4f33896a5fde1421ecaea",
+    "tools/security_check/options.php": "0e9cf22c80013873774774c0cdf20864db178154b1a34ab9a41d7cf129632658",
+    "tools/security_check/providers.php": "5b92d680b96ed2bc7f81bb9cc86f01c9fbad6d58fba9d3de68e243526134abbd",
+    "tools/security_check/rules.php": "b56063e3405352af8b984640dd9bb0ea64f7e3d00b72503d64a887af03f787b2",
+    "tools/security_check/security_check.php": "1f353c773cae3ab9ff1df54fe431b34f0cdd2b17424efb0974d9aabac158f10b",
+    "tools/security_check/telemetry.php": "e3ee73c04347f5438b97cbaecbb2e20bbad38a9025912c733107fdbf4bf8712f",
+    "tools/security_check/vulnerabilities.php": "5afcb67044e31f23b421cb31c6a7cd9001283d3b7eb27951dcfd208879600920",
     "tools/site_links/site_links.php": "59b2e7b818d9986e8e38d6111292590d95bfce22b18014d03e93763dfe0f023c",
     "tools/site_urls/admin.php": "beb9e2a4424fc0557062e7a6b58a96177ba0d9b37fb52fb124db754e7c68446d",
     "tools/site_urls/filters.php": "82fd836afd125ca8982512ffe3a3641fea60805926159697ef5cff9a2bd52962",
@@ -78,6 +81,6 @@
     "tools/site_urls/service.php": "f78be9f15e78eb761874c6bd98ab5a9d1240914e27da6c616b2218abc68b4e34",
     "tools/site_urls/site_urls.php": "67c33d3cdc06b6f498e5f722abff07e67dceed6b198f98828d1077e4bc21dc43",
     "tools/timer.php": "0e8dd9c497a179c65020d0a4e595dab4a5d3a155acf781873bce6e0213d0ace6",
-    "wp-helpers-multi.php": "c3c23deab571288c2568a5a0180b0435be7b0ddefd20c80cc86bf6c3d1b649e4"
+    "wp-helpers-multi.php": "c1960cde3009c0f96d7af2145ccfd5ee0b2c60fb3df2539fa2702b44e95ff148"
   }
 }

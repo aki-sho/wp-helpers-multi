@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.10.1",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-11-03",
+  "sections": {
+    "description": "WordPress管理画面の便利ツール集。投稿データ、サイト内URL一覧、セキュリティチェック、検索・置換、ログ等をまとめて提供します。",
+    "changelog": "- v0.10.1 セキュリティチェックの①②⑤⑧⑨に確認項目・設定案内・確認範囲の判定を追加。既知脆弱性の自動続行・停止・再開、Wordfenceの読取り連携、観測基準、Cloudflareの件数情報、期限・容量・不正入力の保護を改善。"
+  }
+}
