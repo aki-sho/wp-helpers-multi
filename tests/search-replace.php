@@ -214,6 +214,7 @@ same([false, false, true], [$first['done'], $second['done'], $third['done']], 'b
 same(90, $third['count'], 'cumulative match count');
 
 function ajax($payload) {
+    $_SERVER['REQUEST_METHOD']='POST';
     $_POST['payload'] = wp_slash(json_encode($payload));
     try { wphm_sr_ajax(); } catch (AjaxResponse $response) { return $response; }
     throw new Exception('AJAX failed to respond');

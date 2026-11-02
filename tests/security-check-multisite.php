@@ -1,0 +1,26 @@
+<?php
+if (PHP_SAPI!=='cli' || !isset($connection,$checks)) exit;
+sc_same(true,is_multisite(),'native network enabled');
+sc_same(true,wphm_sc_allowed(),'network administrator may use checker');
+update_option('users_can_register',1); update_option('default_role','administrator');
+$facts=wphm_sc_collect(false)['facts'];
+sc_same(false,$facts['registration'],'single-site registration not inferred for a network');
+sc_same(false,$facts['raw_html'],'network default role not assumed to have unfiltered HTML');
+sc_same(false,$facts['raw_upload'],'network default role not assumed to bypass upload checks');
+$first=wphm_sc_acquire_lease();
+$second=wpmu_create_blog('example.invalid','/second/','Second fixture',(int)$installed['user_id'],[],1);
+if(is_wp_error($second)) throw new RuntimeException('Network fixture: '.$second->get_error_code().' '.$second->get_error_message());
+sc_same(true,!is_wp_error($second) && (int)$second>1,'second real network site created');
+switch_to_blog((int)$second);
+sc_same(false,get_option('wphm_sc_check_lock',false),'check leases isolated per site');
+$other=wphm_sc_acquire_lease(); wphm_sc_release_lease($other);
+sc_same(true,wphm_sc_telemetry_schema(),'second site uses its own counter table');
+sc_same(0,wphm_sc_telemetry_facts()['requests'],'second site has independent observations');
+restore_current_blog();
+sc_same($first,get_option('wphm_sc_check_lock'),'first site lease retained');
+wphm_sc_release_lease($first);
+$subscriber=wp_create_user('networkobserver',bin2hex(random_bytes(12)),'networkobserver@example.invalid');
+(new WP_User($subscriber))->set_role('subscriber');
+wp_set_current_user($subscriber);
+sc_same(false,wphm_sc_allowed(),'network subscriber cannot read security results');
+sc_same('', $wpdb->last_error,'network queries completed without database errors');

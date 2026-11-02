@@ -4,6 +4,7 @@ if (!defined('ABSPATH')) exit;
 add_action('wp_ajax_wphm_search_replace', 'wphm_sr_ajax');
 function wphm_sr_ajax(): void {
     if (!current_user_can('manage_options') || !wphm_is_tool_enabled('search_replace')) wp_send_json_error(['message' => '権限がないか、機能が無効です。'], 403);
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') wp_send_json_error(['message'=>'POSTで操作してください。'],405);
     check_ajax_referer('wphm_search_replace', 'nonce');
     if (!wphm_sr_ensure_schema()) wp_send_json_error(['message' => '置換履歴の保存先を準備できませんでした。'], 500);
     $raw = isset($_POST['payload']) && is_string($_POST['payload']) ? wp_unslash($_POST['payload']) : '';

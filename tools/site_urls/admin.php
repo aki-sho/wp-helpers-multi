@@ -31,6 +31,7 @@ function wphm_su_response(string $search = '', int $page = 1, string $orderby = 
 
 function wphm_su_ajax(): void {
     if (!current_user_can('manage_options') || !wphm_is_tool_enabled('site_urls')) wp_send_json_error(['message' => '権限がないか、機能が無効です。'], 403);
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') wp_send_json_error(['message'=>'POSTで操作してください。'],405);
     check_ajax_referer('wphm_site_urls', 'nonce');
     if (!wphm_su_schema()) wp_send_json_error(['message' => '収集結果の保存先を作成できませんでした。'], 500);
     $op = isset($_POST['op']) && is_string($_POST['op']) ? $_POST['op'] : '';

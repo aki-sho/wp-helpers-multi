@@ -72,6 +72,15 @@ const server = http.createServer(async (request, response) => {
     }
     failure = ''; await page.locator('#wphm-sc-recheck').click();
     await page.waitForFunction(() => document.querySelector('#wphm-sc-status').textContent.includes('再チェックが完了'));
+    await page.evaluate(() => { window.fixtureSetTimeout=window.setTimeout; window.setTimeout=(callback,ms,...args)=>window.fixtureSetTimeout(callback,ms===35000?25:ms,...args); });
+    const beforeTimeout=await page.locator('#wphm-sc-report').innerHTML();
+    await page.locator('#wphm-sc-recheck').click();
+    await page.waitForFunction(() => document.querySelector('#wphm-sc-error').textContent.includes('通信待ちの上限'));
+    same(await page.locator('#wphm-sc-recheck').isEnabled(),true,'network deadline restores retry button');
+    same(await page.locator('#wphm-sc-report').innerHTML(),beforeTimeout,'network deadline retains previous report');
+    await page.evaluate(() => { window.setTimeout=window.fixtureSetTimeout; });
+    await page.locator('#wphm-sc-recheck').click();
+    await page.waitForFunction(() => document.querySelector('#wphm-sc-status').textContent.includes('再チェックが完了'));
     same(await page.locator('#wphm-sc-error').textContent(), '', 'successful retry clears error');
     await page.locator('#wphm-sc-report').evaluate(node => { node.replaceChildren(); });
     failure = 'permission'; await page.locator('#wphm-sc-recheck').click();
@@ -82,8 +91,13 @@ const server = http.createServer(async (request, response) => {
     await page.setViewportSize({ width: 390, height: 844 });
     same(await page.locator('#wphm-sc-recheck').isVisible(), true, 'mobile recheck visible');
     same(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'no horizontal page overflow on mobile');
-    await page.locator('.wphm-sc-details summary').click();
-    same(await page.locator('.wphm-sc-details').getAttribute('open') !== null, true, 'reference information expandable');
+    await page.locator('.wphm-sc-evidence summary').click();
+    same(await page.locator('.wphm-sc-evidence').getAttribute('open') !== null, true, 'observation information expandable');
+    await page.locator('.wphm-sc-settings summary').click();
+    same(await page.locator('input[name="cf_token"]').inputValue(),'','credential field always blank');
+    same(await page.locator('select[name="uploads_execution"] option').count(),3,'server attestations include unknown');
+    same(await page.locator('.wphm-sc-settings input[name="nonce"]').count(),1,'settings protected by native form nonce');
+    same(await page.evaluate(() => document.documentElement.scrollWidth<=window.innerWidth),true,'expanded settings fit mobile');
     await page.screenshot({ path: path.join(root, '.wphm-test/security-check-mobile.png'), fullPage: true });
     await page.screenshot({ path: path.join(root, '.wphm-test/security-check-mobile-top.png') });
     same(errors, [], 'no browser runtime errors');

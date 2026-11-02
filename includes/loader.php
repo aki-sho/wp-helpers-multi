@@ -4,6 +4,10 @@ if (!defined('ABSPATH')) exit;
 require_once __DIR__ . '/settings.php';
 require_once __DIR__ . '/helpers.php';
 
+if (wphm_is_tool_enabled('security_check')) {
+    require_once __DIR__ . '/../tools/security_check/telemetry.php';
+}
+
 // フロント側または管理画面で処理が必要な機能だけを読み込みます。
 if (wphm_is_tool_enabled('post_data')) {
     require_once __DIR__ . '/../tools/post_data/post_data.php';

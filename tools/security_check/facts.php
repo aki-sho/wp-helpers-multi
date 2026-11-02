@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 /** Read existing logs without loading, enabling, creating or changing the logging feature. */
 function wphm_sc_log_facts(): array {
     global $wpdb;
-    $out = ['available' => false, 'enabled' => wphm_is_tool_enabled('access_log'), 'sampled' => 0, 'limited' => false, 'peak' => 0, 'errors' => 0, 'sql_paths' => 0, 'html_paths' => 0, 'traversal_paths' => 0];
+    $out = ['available' => false, 'enabled' => wphm_is_tool_enabled('access_log'), 'sampled' => 0, 'limited' => false, 'from' => 0, 'to' => 0, 'peak' => 0, 'errors' => 0, 'sql_paths' => 0, 'html_paths' => 0, 'traversal_paths' => 0];
     $table = $wpdb->prefix . 'wphm_access_log';
     $previous = $wpdb->suppress_errors(true);
     try {
@@ -14,6 +14,7 @@ function wphm_sc_log_facts(): array {
     } finally { $wpdb->suppress_errors($previous); }
     $out['available'] = true; $out['limited'] = count($rows) > 2000; $rows = array_slice($rows, 0, 2000);
     $out['sampled'] = count($rows); $minutes = [];
+    if ($rows) { $out['to'] = (int)$rows[0]['created_at']; $out['from'] = (int)$rows[count($rows)-1]['created_at']; }
     foreach ($rows as $row) {
         $minute = (int)floor((int)$row['created_at'] / 60);
         $minutes[$minute] = ($minutes[$minute] ?? 0) + 1;
@@ -31,19 +32,9 @@ function wphm_sc_log_facts(): array {
 
 /** Fixed WordPress.org metadata endpoints only. No site URL, payload, credential or file contents. */
 function wphm_sc_api(string $url, ?array $body = null): ?array {
-    global $wp_version;
     $allowed = ['https://api.wordpress.org/core/stable-check/1.0/', 'https://api.wordpress.org/core/serve-happy/1.0/', 'https://api.wordpress.org/plugins/update-check/1.1/', 'https://api.wordpress.org/themes/update-check/1.1/'];
     if (!in_array(strtok($url, '?'), $allowed, true)) return null;
-    $agent = 'WordPress/' . preg_replace('/[^0-9A-Za-z_.-]/', '', (string)$wp_version) . '; WP Helpers Multi/' . WPHM_VERSION;
-    $args = ['timeout' => 3, 'redirection' => 0, 'limit_response_size' => 1048577, 'decompress' => false, 'user-agent' => $agent, 'headers' => ['Accept' => 'application/json', 'Accept-Encoding' => 'identity']];
-    if ($body !== null) $args['body'] = $body;
-    $response = $body === null ? wp_safe_remote_get($url, $args) : wp_safe_remote_post($url, $args);
-    if (is_wp_error($response) || (int)wp_remote_retrieve_response_code($response) !== 200) return null;
-    $text = (string)wp_remote_retrieve_body($response);
-    $encoding = strtolower(trim((string)wp_remote_retrieve_header($response, 'content-encoding')));
-    if (strlen($text) > 1048576 || !in_array($encoding, ['', 'identity'], true)) return null;
-    $data = json_decode($text, true);
-    return is_array($data) ? $data : null;
+    return wphm_sc_http($url, $body);
 }
 
 function wphm_sc_inventory(): array {
@@ -52,7 +43,12 @@ function wphm_sc_inventory(): array {
     foreach (get_plugins() as $file => $plugin) $plugins[$file] = ['Name' => (string)$plugin['Name'], 'Version' => (string)$plugin['Version'], 'PluginURI' => (string)$plugin['PluginURI'], 'UpdateURI' => (string)$plugin['UpdateURI']];
     $themes = [];
     foreach (wp_get_themes() as $slug => $theme) $themes[$slug] = ['Name' => $theme->get('Name'), 'Version' => $theme->get('Version'), 'ThemeURI' => $theme->get('ThemeURI'), 'UpdateURI' => $theme->get('UpdateURI')];
-    return ['plugins' => $plugins, 'themes' => $themes];
+    $extra = [];
+    foreach (['mu_plugins' => get_mu_plugins(), 'dropins' => get_dropins()] as $group => $items) {
+        $extra[$group] = [];
+        foreach ($items as $file => $item) $extra[$group][$file] = ['Name'=>(string)($item['Name'] ?? $file),'Version'=>(string)($item['Version'] ?? '')];
+    }
+    return ['plugins' => $plugins, 'themes' => $themes] + $extra;
 }
 
 /** Bypass update-provider filters: reading an existing report must not start another updater. */
@@ -97,8 +93,11 @@ function wphm_sc_update_group(array $installed, $response, string $key, int $che
 function wphm_sc_update_facts(array $inventory, bool $refresh): array {
     global $wp_version;
     $version = (string)$wp_version;
+    $signatures = ['core'=>$version, 'php'=>PHP_VERSION];
+    foreach (['plugins','themes'] as $group) $signatures[$group]=hash('sha256',wp_json_encode(array_map(function($item){return $item['Version'];},$inventory[$group])));
+    $saved = get_option('wphm_sc_update_metadata', []);
     $core = ['known' => false, 'status' => 'unknown', 'pending' => false, 'version' => $version, 'checked_at' => 0, 'source' => 'WordPressの保存済み更新情報'];
-    $php = ['known' => false, 'secure' => null, 'version' => PHP_VERSION];
+    $php = ['known' => false, 'secure' => null, 'version' => PHP_VERSION, 'checked_at'=>0, 'source'=>'WordPressの保存済みPHP情報（元の照会日時は未確認）'];
     if ($refresh) {
         $map = wphm_sc_api('https://api.wordpress.org/core/stable-check/1.0/');
         if (is_array($map) && isset($map[$version]) && in_array($map[$version], ['latest', 'outdated', 'insecure'], true)) {
@@ -127,14 +126,30 @@ function wphm_sc_update_facts(array $inventory, bool $refresh): array {
         $themes = wphm_sc_update_group($inventory['themes'], $theme_data, 'response', is_object($theme_data) ? (int)($theme_data->last_checked ?? 0) : 0, 'WordPressの保存済み更新情報');
         $php_data = wphm_sc_saved_site_transient('php_check_' . md5(PHP_VERSION));
     }
-    if (is_array($php_data) && isset($php_data['is_secure']) && is_bool($php_data['is_secure'])) { $php['known'] = true; $php['secure'] = $php_data['is_secure']; }
-    return ['core' => $core, 'plugins' => $plugins, 'themes' => $themes, 'php' => $php];
+    if (is_array($php_data) && isset($php_data['is_secure']) && is_bool($php_data['is_secure'])) { $php['known'] = true; $php['secure'] = $php_data['is_secure']; if($refresh){$php['checked_at']=time();$php['source']='WordPress.orgへの今回の照会';} }
+    $result = ['core' => $core, 'plugins' => $plugins, 'themes' => $themes, 'php' => $php];
+    if (!$refresh && is_array($saved) && isset($saved['facts'],$saved['signatures'],$saved['checked_at']) && is_array($saved['facts']) && is_array($saved['signatures'])) {
+        foreach ($signatures as $group=>$signature) {
+            if (($saved['signatures'][$group] ?? null)!==$signature || !is_array($saved['facts'][$group] ?? null)) continue;
+            $result[$group]=$saved['facts'][$group];
+            if ($saved['checked_at']>=time()-DAY_IN_SECONDS && $saved['checked_at']<=time()+60) continue;
+            $result[$group]['source']='前回の公式照会（期限切れ・再チェックが必要）';
+            if ($group==='core') { $result[$group]['known']=false; $result[$group]['status']='unknown'; $result[$group]['pending']=false; }
+            elseif ($group==='php') $result[$group]['known']=false;
+            else { $result[$group]['pending']=0; $result[$group]['unknown']=$result[$group]['total']; }
+        }
+    }
+    if ($refresh) update_option('wphm_sc_update_metadata', ['signatures'=>$signatures,'checked_at'=>time(),'facts'=>$result], false);
+    return $result;
 }
 
 function wphm_sc_collect(bool $refresh = false): array {
+    $GLOBALS['wphm_sc_deadline'] = microtime(true) + 25;
+    wphm_sc_telemetry_schema();
     $role = get_role((string)get_option('default_role', 'subscriber'));
     $file_edit_disabled = (defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT) || (defined('DISALLOW_FILE_MODS') && DISALLOW_FILE_MODS);
     $file_uploads = ini_get('file_uploads');
+    $inventory = wphm_sc_inventory();
     $facts = [
         'registration' => !is_multisite() && (bool)get_option('users_can_register', false),
         'raw_html' => !is_multisite() && !(defined('DISALLOW_UNFILTERED_HTML') && DISALLOW_UNFILTERED_HTML) && $role && $role->has_cap('unfiltered_html') && ($role->has_cap('edit_posts') || $role->has_cap('edit_pages')),
@@ -145,7 +160,17 @@ function wphm_sc_collect(bool $refresh = false): array {
         'file_uploads' => $file_uploads === false ? null : filter_var($file_uploads, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
         'https' => wp_parse_url(home_url('/'), PHP_URL_SCHEME) === 'https' && wp_parse_url(site_url('/'), PHP_URL_SCHEME) === 'https',
         'logs' => wphm_sc_log_facts(),
-        'updates' => wphm_sc_update_facts(wphm_sc_inventory(), $refresh),
+        'updates' => wphm_sc_update_facts($inventory, $refresh),
+        'telemetry' => wphm_sc_telemetry_facts(),
+        'identity' => wphm_sc_identity_facts(),
+        'files' => wphm_sc_file_facts($inventory),
+        'audit' => wphm_sc_audit_facts(),
+        'vulnerabilities' => wphm_sc_vulnerabilities($inventory, $refresh),
+        'cloudflare' => wphm_sc_cloudflare($refresh),
     ];
+    $options = wphm_sc_options();
+    $facts['server'] = array_intersect_key($options, array_flip(['uploads_execution','vendor_patches','evidence','attested_at']));
+    $facts['inventory'] = [];
+    foreach (['plugins','themes','mu_plugins','dropins'] as $group) $facts['inventory'][$group] = array_values(array_map(function ($item) { return ['name'=>$item['Name'],'version'=>$item['Version']]; }, $inventory[$group]));
     return ['checked_at' => time(), 'refreshed' => $refresh, 'facts' => $facts, 'items' => wphm_sc_assess($facts)];
 }

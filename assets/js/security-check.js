@@ -12,17 +12,20 @@
     const hadPreviousResults = !!report.querySelector('[data-check]');
     button.disabled = true; report.setAttribute('aria-busy', 'true'); error.textContent = '';
     status.textContent = '設定・ログ・公式の更新情報を確認しています…';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 35000);
     try {
       const body = new URLSearchParams(new FormData(form)); body.set('action', 'wphm_security_check');
-      const response = await fetch(wphmSecurityCheck.url, { method: 'POST', credentials: 'same-origin', body });
+      const response = await fetch(wphmSecurityCheck.url, { method: 'POST', credentials: 'same-origin', body, signal: controller.signal });
       let result; try { result = await response.json(); } catch (_) { throw new Error('サーバーから正常な応答を取得できませんでした。'); }
       if (!response.ok || !result || !result.success || !result.data || typeof result.data.html !== 'string') throw new Error(result && result.data && result.data.message || 'チェック結果を取得できませんでした。');
       // HTML is produced by the capability/nonce protected endpoint and escapes every fact.
       report.innerHTML = result.data.html;
       status.textContent = '再チェックが完了しました。';
     } catch (failure) {
+      if (failure.name === 'AbortError') failure = new Error('通信待ちの上限に達しました。サーバーの処理終了を待って再試行してください。');
       error.textContent = `${failure.message} ${hadPreviousResults ? '前回の結果を表示しています。' : '結果を取得できていません。'}`;
       status.textContent = '再チェックに失敗しました。';
-    } finally { button.disabled = false; report.setAttribute('aria-busy', 'false'); }
+    } finally { clearTimeout(timeout); button.disabled = false; report.setAttribute('aria-busy', 'false'); }
   });
 })();

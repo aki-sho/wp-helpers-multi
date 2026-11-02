@@ -237,6 +237,7 @@ function wphm_handle_save_tool_settings(): void {
     if (!current_user_can('manage_options')) {
         wp_die('権限がありません。');
     }
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') wp_die('POSTで操作してください。', '', ['response'=>405]);
 
     check_admin_referer('wphm_save_tool_settings', 'wphm_tool_settings_nonce');
     $posted = isset($_POST['wphm_tools']) && is_array($_POST['wphm_tools'])
@@ -399,6 +400,7 @@ function wphm_render_header(string $title): void {
 add_action('admin_post_wphm_set_fontsize', 'wphm_handle_set_fontsize');
 function wphm_handle_set_fontsize(): void {
     if (!current_user_can('manage_options')) wp_die('権限がありません。');
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') wp_die('POSTで操作してください。', '', ['response'=>405]);
 
     if (!isset($_POST['wphm_fontsize_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['wphm_fontsize_nonce'])), 'wphm_fontsize')) {
         wp_die('Nonceが不正です。');

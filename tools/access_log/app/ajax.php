@@ -6,6 +6,8 @@ function wphm_access_log_ajax_delete(): void {
     if (!current_user_can('manage_options')) {
         wp_send_json_error(['message' => '権限がありません'], 403);
     }
+    if (!wphm_is_tool_enabled('access_log')) wp_send_json_error(['message'=>'機能が無効です'],403);
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') wp_send_json_error(['message'=>'POSTで操作してください'],405);
 
     check_ajax_referer('wphm_access_log_ajax', 'nonce');
 

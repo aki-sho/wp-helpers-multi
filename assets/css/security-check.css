@@ -31,5 +31,9 @@
 .wphm-sc-details{margin-top:24px;padding:18px 24px}
 .wphm-sc-details summary{cursor:pointer;font-weight:600}
 .wphm-sc-details p{overflow-wrap:anywhere}
+.wphm-sc-settings input[type=text],.wphm-sc-settings input[type=password]{max-width:100%;width:360px}
+.wphm-sc-settings select{display:block;max-width:100%;margin-top:8px}
+.wphm-sc-vulnerability{padding:12px 16px;margin:12px 0;border-left:3px solid #9b392f;background:#f7e9e5;overflow-wrap:anywhere}
+.wphm-sc-settings,.wphm-sc-evidence,.wphm-sc-vulnerabilities{overflow-wrap:anywhere}
 #wphm-sc-report[aria-busy=true]{opacity:.65}
 @media(max-width:600px){.wphm-sc-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.wphm-sc-item{padding:18px 16px}.wphm-sc-item-title h2{font-size:1em}.wphm-sc-item p{display:block}.wphm-sc-item p strong{display:block;margin-bottom:3px}.wphm-sc-number{flex-basis:25px;width:25px;height:25px}.wphm-sc-badge{padding:2px 9px}}

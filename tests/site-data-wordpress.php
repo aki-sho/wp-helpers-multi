@@ -258,7 +258,7 @@ try {
 
     define('DOING_AJAX', true);
     add_filter('wp_die_ajax_handler', function () { return function () { throw new RuntimeException('ajax_exit'); }; });
-    $ajax = function (array $input) { $_POST = $_REQUEST = $input; ob_start(); try { wphm_su_ajax(); } catch (RuntimeException $error) {} return json_decode(ob_get_clean(), true); };
+    $ajax = function (array $input) { $_SERVER['REQUEST_METHOD']='POST'; $_POST = $_REQUEST = $input; ob_start(); try { wphm_su_ajax(); } catch (RuntimeException $error) {} return json_decode(ob_get_clean(), true); };
     $nonce = wp_create_nonce('wphm_site_urls');
     inventory_same(true, $ajax(['nonce' => $nonce, 'op' => 'list'])['success'], 'authenticated AJAX list');
     $filter_request = ['nonce' => $nonce, 'op' => 'filters', 'mode' => 'only', 'uploads' => '1', 'attachments' => '0', 'image_redirects' => '0'];

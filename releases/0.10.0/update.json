@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.10.0",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-11-03",
+  "sections": {
+    "description": "WordPress管理画面の便利ツール集。投稿データ、サイト内URL一覧、セキュリティチェック、検索・置換、ログ等をまとめて提供します。",
+    "changelog": "- v0.10.0 セキュリティチェックを拡充。認証・入力の上限付き集計、既知脆弱性の影響版照合、権限・ファイル設定、任意のCloudflare連携、判定根拠の保持と負荷制御に対応。状態変更のPOST制限を補強。"
+  }
+}

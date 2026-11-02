@@ -1,54 +1,83 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-function wphm_sc_levels(): array {
-    return ['low' => '低', 'medium' => '中', 'high' => '高', 'unknown' => '未確認'];
+function wphm_sc_levels(): array { return ['low'=>'低','medium'=>'中','high'=>'高','unknown'=>'未確認']; }
+
+function wphm_sc_observation(array $logs, string $field): string {
+    return $logs['available'] ? (int)$logs[$field] . '件（保存された範囲）' : '未計測（アクセスログを参照できません）';
 }
 
-/** Assess only positively observed conditions. Missing findings never prove a site safe. */
 function wphm_sc_assess(array $facts): array {
-    $logs = $facts['logs']; $updates = $facts['updates'];
-    $observations = $logs['available'] ? '直近24時間の保存ログから' . $logs['sampled'] . '件を参照。' : '参照できるアクセスログがありません。';
-    $items = [
-        'brute_force' => ['name' => 'ブルートフォース攻撃', 'scope' => 'ログイン試行・試行制限', 'level' => 'unknown', 'state' => 'ログインの成功・失敗履歴は取得できません。', 'reason' => '既存ログはフロント側のアクセス記録です。認証失敗数やログイン試行制限の設定を確認できないため、耐性は判定できません。'],
-        'credential_stuffing' => ['name' => 'クレデンシャルスタッフィング攻撃', 'scope' => '認証情報の再利用・追加認証', 'level' => 'unknown', 'state' => 'パスワードの使い回し・漏えい・全利用者の追加認証は未確認です。', 'reason' => '保存パスワードの解析、漏えい情報との照合、ログインの試行は行いません。HTTPS設定は' . ($facts['https'] ? '有効です' : '統一されていません') . 'が、この攻撃への耐性を示すものではありません。'],
-        'sql_injection' => ['name' => 'SQLインジェクション', 'scope' => '入力とSQL組み立て・保存ログ', 'level' => 'unknown', 'state' => $observations . 'SQL風の文字列を含むパスは' . $logs['sql_paths'] . '件です。', 'reason' => 'ログにはクエリやPOST本文がなく、テーマ・プラグインのSQL組み立ても監査していません。文字列の一致だけでは攻撃の有無・成立を判断できません。'],
-        'xss' => ['name' => 'クロスサイトスクリプティング（XSS）', 'scope' => '公開登録者のHTML権限・出力処理', 'level' => 'unknown', 'state' => 'HTMLタグ風の文字列を含むパスは' . $logs['html_paths'] . '件です。', 'reason' => '入力の無害化と出力のエスケープをコード全体で監査していないため、XSS耐性は未確認です。文字列の一致は攻撃成立を意味しません。'],
-        'ddos' => ['name' => 'DDoS攻撃', 'scope' => '保存されたフロントアクセスの観測', 'level' => 'unknown', 'state' => $observations . '記録内の最大は1分あたり' . $logs['peak'] . '件、HTTP 5xxは' . $logs['errors'] . '件です。', 'reason' => '記録頻度制限・ボット除外・キャッシュ等で記録されない通信があります。回線負荷、CDN・WAFの設定や未到達の通信は確認できず、DDoSの有無・耐性は判定できません。'],
-        'csrf' => ['name' => 'CSRF攻撃', 'scope' => '操作ごとのnonce・権限検証', 'level' => 'unknown', 'state' => 'テーマ・プラグイン全体の操作受付処理は未監査です。', 'reason' => 'WordPressにnonceの仕組みがあっても、各処理が正しく検証しているかは設定や通常のアクセスログだけでは確認できません。'],
-        'rce' => ['name' => 'RCE（リモートコード実行）攻撃', 'scope' => 'PHPのサポート状況・管理画面のコード編集', 'level' => 'unknown', 'state' => 'PHP ' . $updates['php']['version'] . '。管理画面のコード編集は' . ($facts['file_edit_allowed'] ? '現在の管理者に許可されています。' : '現在の管理者には許可されていません。'), 'reason' => 'テーマ・プラグインの実行経路やサーバー全体は未監査のため、RCE耐性は未確認です。'],
-        'file_upload' => ['name' => 'ファイルアップロード攻撃', 'scope' => 'PHP標準の受信・WordPressの未検査アップロード権限', 'level' => 'unknown', 'state' => '未検査アップロードを許可する設定は' . ($facts['unfiltered_uploads'] ? '有効です。' : '無効です。'), 'reason' => '独自のアップロード受付処理、保存後の検査、Webサーバーの実行禁止設定は未確認です。通常設定だけで安全とは判定しません。'],
-        'vulnerability_exploit' => ['name' => '脆弱性悪用攻撃', 'scope' => 'WordPress公式のコア状態・更新待ち', 'level' => 'unknown', 'state' => 'WordPress ' . $updates['core']['version'] . '。更新待ち：コア' . ($updates['core']['known'] ? ($updates['core']['pending'] ? '1件' : '0件') : '未確認') . '・プラグイン' . $updates['plugins']['pending'] . '件（未確認' . $updates['plugins']['unknown'] . '件）・テーマ' . $updates['themes']['pending'] . '件（未確認' . $updates['themes']['unknown'] . '件）。', 'reason' => '更新待ちがなくても脆弱性がないとは判断できません。全プラグイン・テーマのCVE照合とコード監査は行っていません。'],
-        'directory_traversal' => ['name' => 'ディレクトリトラバーサル攻撃', 'scope' => '保存ログのパス・ファイル参照処理', 'level' => 'unknown', 'state' => $observations . '相対パス記号「../」等を含むパスは' . $logs['traversal_paths'] . '件です。', 'reason' => 'ファイル参照処理の検証やアクセス先の内容確認は行いません。ログの文字列だけで、不正なファイル読取りの成立や耐性は判断できません。'],
-    ];
-    if ($facts['registration'] && $facts['raw_html']) {
-        $items['xss']['level'] = 'high';
-        $items['xss']['state'] = '公開登録で作られる利用者に、未フィルターHTMLを保存できる権限があります。';
-        $items['xss']['reason'] = '新規登録者の役割に強いHTML編集権限が付与されています。登録者の権限を見直してください。XSSの実行テストや出力処理全体の監査は行っていません。';
+    $logs=$facts['logs']; $updates=$facts['updates'];
+    $telemetry=$facts['telemetry'] ?? ['available'=>false];
+    $identity=$facts['identity'] ?? [];
+    $audit=$facts['audit'] ?? ['known'=>false];
+    $files=$facts['files'] ?? [];
+    $items=[];
+    $add=function(string $id,string $name,string $scope,string $state,string $reason) use (&$items): void { $items[$id]=compact('id','name','scope','state','reason')+['level'=>'unknown']; };
+    $auth=$telemetry['available'] ? '直近24時間の認証失敗' . $telemetry['failures'] . '件、パスワード段階の認証成功' . $telemetry['successes'] . '件、失敗後の成功候補' . $telemetry['after_failure'] . '件。' : '認証履歴は未計測です。計測開始後のイベントだけを参照します。';
+    $add('brute_force','ブルートフォース攻撃','認証失敗の集計・確認できた試行制限',$auth,'認証試行は実行しません。成功件数には2段階認証前のパスワード確認を含みます。共有ハッシュ枠の集中は概数で、攻撃成立の証拠ではありません。');
+    if (!empty($identity['limiter'])) {
+        $limit=$identity['limiter'];
+        $items['brute_force']['level']='low';
+        $items['brute_force']['state'].=$limit['name'] . '：' . $limit['tries'] . '回、停止' . $limit['seconds'] . '秒。';
+        $items['brute_force']['reason']='登録中の認証フィルターと実設定を読みました。低はこの試行制限設定の範囲です。除外設定・別の認証経路・外部WAFを含む全体の耐性は未確認です。';
     }
-    if ($updates['php']['known'] && $updates['php']['secure'] === false) {
-        $items['rce']['level'] = 'high';
-        $items['rce']['reason'] = 'WordPress公式のPHP情報では、このPHP系列は上流のセキュリティ更新対象外です。ホスティング事業者の独自パッチとRCEの成立は未確認です。';
-    } elseif ($facts['file_edit_allowed']) {
-        $items['rce']['level'] = 'medium';
-        $items['rce']['reason'] = '管理者の認証情報を奪われた場合、管理画面から実行コードを変更できる設定です。コード編集の制限を検討してください。その他のRCE経路は未確認です。';
+    if ($telemetry['available'] && ($telemetry['auth_peak']>=20 || $telemetry['focused_failures']>=10)) {
+        $items['brute_force']['level']='medium';
+        $items['brute_force']['reason']='認証失敗の集中を観測しました。1分20件以上、または共有枠で5分10件以上を注意の基準とします。正当な操作・共有回線・枠の衝突もあり、攻撃と断定しません。';
     }
-    if ($facts['file_uploads'] === false) {
-        $items['file_upload']['level'] = 'low';
-        $items['file_upload']['state'] = 'PHP標準のファイルアップロード受信は無効です。';
-        $items['file_upload']['reason'] = 'この受信経路が停止している範囲に限った判定です。URL取込みやプラグイン独自のファイル保存・実行経路は未確認です。';
-    } elseif ($facts['unfiltered_uploads']) {
-        $items['file_upload']['level'] = $facts['registration'] && $facts['raw_upload'] ? 'high' : 'medium';
-        $items['file_upload']['reason'] = $items['file_upload']['level'] === 'high' ? '公開登録者の役割がファイルの未検査アップロードを行える構成です。登録者の権限とALLOW_UNFILTERED_UPLOADSを見直してください。' : 'ALLOW_UNFILTERED_UPLOADSが有効で、権限を持つ利用者が標準の種類制限を回避できます。独自の受付処理と保存後の実行可否は未確認です。';
+    $mfa=($identity['mfa_known'] ?? 0)>0 ? '確認した管理者' . $identity['admins'] . '人中、Two-Factor設定を取得できた' . $identity['mfa_known'] . '人、要求あり' . $identity['mfa_enabled'] . '人。' : '管理者の追加認証は未確認です。対応するTwo-Factor連携から設定を取得します。';
+    $add('credential_stuffing','クレデンシャルスタッフィング攻撃','追加認証の要求・認証経路・失敗後の成功',$mfa . $auth,'漏えいパスワードの収集・解析・照合は行いません。2FAの要求は現在の要求条件で確認した設定です。SSO・XML-RPC・REST等への適用を一律には推測しません。');
+    if (($identity['mfa_known'] ?? 0)>($identity['mfa_enabled'] ?? 0) || ($telemetry['available'] && $telemetry['after_failure']>0)) {
+        $items['credential_stuffing']['level']='medium';
+        $items['credential_stuffing']['reason']='追加認証を要求しない管理者、または失敗集中後のパスワード認証成功候補があります。設定の見直し・履歴確認が必要です。使い回しや侵害の成立は未確認です。';
     }
-    if ($updates['core']['status'] === 'insecure') {
-        $items['vulnerability_exploit']['level'] = 'high';
-        $items['vulnerability_exploit']['reason'] = 'WordPress公式の版情報が、現在のコアを「insecure（安全でない版）」と返しています。コアの更新を優先してください。侵害の有無やプラグイン・テーマの脆弱性は未確認です。';
+    $add('sql_injection','SQLインジェクション','本プラグインのSQL監査・入力分類','SQL風パス：' . wphm_sc_observation($logs,'sql_paths') . '。','サイト全体のSQL処理は未監査です。文字列の一致だけで脆弱性や攻撃成立は判断しません。');
+    $add('xss','クロスサイトスクリプティング（XSS）','本プラグインの出力監査・HTML権限','HTML風パス：' . wphm_sc_observation($logs,'html_paths') . '。既存利用者の強いHTML編集権限は確認範囲で' . ($identity['html_users'] ?? 0) . '人。','既存利用者の権限は用途の確認が必要です。強い権限があることだけでXSS成立とは判定しません。独自の会員登録や他プラグインの出力は未監査です。');
+    $request=$telemetry['available'] ? 'WordPress到達通信' . $telemetry['requests'] . '件、記録した分の最大' . $telemetry['peak'] . '件/分、5xx ' . $telemetry['errors'] . '件。' : 'WordPress到達通信は未計測です。';
+    $add('ddos','DDoS攻撃','WordPress到達通信・任意のCDN読取り統計',$request,'ボットを名乗る通信も集計します。WordPressより前で処理されたキャッシュ・遮断通信・回線負荷はこの集計には含みません。件数からDDoS成立を断定しません。');
+    if ($telemetry['available'] && ($telemetry['peak']>=600 || $telemetry['errors']>=20)) {
+        $items['ddos']['level']='medium'; $items['ddos']['reason']='記録した1分600件以上、または24時間の5xx 20件以上を注意の基準として検出しました。サイトの通常負荷・サーバー側統計との確認が必要です。';
+    }
+    $cf=$facts['cloudflare'] ?? [];
+    if (!empty($cf['known'])) $items['ddos']['state'].='Cloudflare：24時間集計' . ($cf['requests']===null ? '未確認' : $cf['requests'] . '件') . '、有効な管理WAF呼出ルール' . ($cf['waf_rules']===null ? '未確認' : $cf['waf_rules'] . '件') . '。';
+    $add('csrf','CSRF攻撃','本プラグインの状態変更受付・nonce・権限・メソッド','監査対象ファイルと現在の配布ファイルの一致を確認します。','WordPressにnonce APIがあるだけでは耐性を判定しません。他テーマ・プラグインの操作受付は未監査です。');
+    $add('rce','RCE（リモートコード実行）攻撃','PHPサポート・実行コードの編集/追加権限','PHP ' . $updates['php']['version'] . '。現在の管理者のコード編集：' . ($facts['file_edit_allowed'] ? '許可' : '不許可') . '。確認範囲で実行コードを編集・追加できる利用者' . ($identity['code_users'] ?? 0) . '人。','PHPサポート、権限設定、既知脆弱性は別の根拠として扱います。実際のコード実行試験は行いません。');
+    if ($updates['php']['known'] && $updates['php']['secure']===false) {
+        $items['rce']['level']='high'; $items['rce']['reason']='WordPress公式のPHP情報で上流セキュリティサポート対象外です。提供元独自パッチは別途確認が必要で、RCEの成立を示す判定ではありません。';
+    } elseif ($facts['file_edit_allowed'] || ($identity['code_users'] ?? 0)>0 || !empty($files['code_tools'])) {
+        $items['rce']['level']='medium'; $items['rce']['reason']='実行コードの編集・インストール権限、または有効なコード追加機能を確認しました。認証情報を奪われた場合の影響に関する注意です。DISALLOW_FILE_EDITだけでインストール経路も停止するとは扱いません。';
+    }
+    $add('file_upload','ファイルアップロード攻撃','PHP標準受信・許可形式・アップロード先','未検査アップロード設定：' . ($facts['unfiltered_uploads'] ? '有効' : '無効') . '。現在の利用者の許可形式' . ($files['mime_count'] ?? 0) . '種類、上限' . ($files['upload_bytes'] ?? 0) . 'バイト。','独自受付・URL取込み・サーバーの実行可否は別に確認します。公開AJAXの登録件数だけでは匿名アップロードの可否は判断しません。');
+    if ($facts['file_uploads']===false) {
+        $items['file_upload']['level']='low'; $items['file_upload']['state']='PHP標準のファイルアップロード受信は無効です。'; $items['file_upload']['reason']='低はPHP標準の受信経路の範囲です。独自の保存・取込み経路は未確認です。';
+    } elseif ($facts['unfiltered_uploads'] || !empty($files['executable_types']) || ($files['scripts'] ?? 0)>0) {
+        $items['file_upload']['level']=$facts['unfiltered_uploads'] && $facts['registration'] && $facts['raw_upload'] ? 'high' : 'medium';
+        $items['file_upload']['reason']='未検査アップロード設定、実行形式の許可、またはアップロード先のスクリプト形式ファイルを確認しました。ファイルの悪意・実行可能性は未確認です。公開登録者に未検査アップロード権限がある場合は高とします。';
+    }
+    $add('vulnerability_exploit','脆弱性悪用攻撃','公式更新情報・既知脆弱性の版照合','WordPress ' . $updates['core']['version'] . '。更新待ち：コア' . ($updates['core']['known'] ? (int)$updates['core']['pending'] . '件' : '未確認') . '・プラグイン' . $updates['plugins']['pending'] . '件（未確認' . $updates['plugins']['unknown'] . '件）・テーマ' . $updates['themes']['pending'] . '件（未確認' . $updates['themes']['unknown'] . '件）。','更新待ち、既知脆弱性の影響版候補、侵害の有無を区別します。独自配布・改名・同名製品を含む製品同定の限界があります。');
+    if ($updates['core']['status']==='insecure') {
+        $items['vulnerability_exploit']['level']='high'; $items['vulnerability_exploit']['reason']='WordPress公式が現在のコアをinsecureと判定しています。コア更新を優先してください。侵害の有無は未確認です。';
     } elseif ($updates['core']['pending'] || $updates['plugins']['pending'] || $updates['themes']['pending']) {
-        $items['vulnerability_exploit']['level'] = 'medium';
-        $items['vulnerability_exploit']['reason'] = '未適用の更新を確認しました。更新状況に関する注意判定です。更新内容がセキュリティ修正か、悪用可能な脆弱性があるかは未確認です。';
+        $items['vulnerability_exploit']['level']='medium'; $items['vulnerability_exploit']['reason']='更新待ちを確認しました。更新内容がセキュリティ修正かは、既知脆弱性情報や配布元の案内で確認してください。';
     }
-    foreach ($items as $id => &$item) $item['id'] = $id;
-    unset($item);
+    $add('directory_traversal','ディレクトリトラバーサル攻撃','本プラグインのファイル参照監査・入力分類','相対パス記号：' . wphm_sc_observation($logs,'traversal_paths') . '。','入力文字列からファイル読取りの成立は判定しません。他プラグインの展開・ダウンロード・シンボリックリンク処理は未監査です。');
+    if ($audit['known']) foreach (['sql_injection','xss','csrf','directory_traversal'] as $id) {
+        $items[$id]['level']='low';
+        $items[$id]['state'].='本プラグインの配布時監査と' . $audit['files'] . 'ファイルが一致。';
+        $items[$id]['reason']='低はWP Helpers Multi ' . $audit['version'] . 'の配布時に監査・検証した処理の範囲です。ファイル一致は侵害や未知の欠陥がない証明ではありません。他のテーマ・プラグインを含むサイト全体は未確認です。';
+    }
+    if ($facts['registration'] && $facts['raw_html']) {
+        $items['xss']['level']='high'; $items['xss']['state']='公開登録者の初期ロールが未フィルターHTMLを編集できる構成です。'; $items['xss']['reason']='新規登録者の役割と強いHTML編集権限を見直してください。独自登録処理の追加制約とXSSの実行成立は未確認です。';
+    }
+    if ($telemetry['available']) foreach (['sql_injection'=>'sql_hits','xss'=>'xss_hits','directory_traversal'=>'traversal_hits'] as $id=>$key) $items[$id]['state'].='現在の入力分類：' . $telemetry[$key] . '件（全文は保存しません）。';
+    $vulns=$facts['vulnerabilities'] ?? [];
+    if (isset($vulns['checked'])) $items['vulnerability_exploit']['state'].='既知脆弱性照合：' . $vulns['checked'] . '/' . $vulns['total'] . '製品、未確認または条件不明' . $vulns['unknown'] . '件。';
+    $mapping=['CWE-89'=>'sql_injection','CWE-79'=>'xss','CWE-352'=>'csrf','CWE-78'=>'rce','CWE-94'=>'rce','CWE-434'=>'file_upload','CWE-22'=>'directory_traversal','CWE-23'=>'directory_traversal','CWE-36'=>'directory_traversal'];
+    foreach ($vulns['matches'] ?? [] as $match) {
+        $items['vulnerability_exploit']['level']='high'; $items['vulnerability_exploit']['reason']='識別名とインストール版が既知脆弱性の影響条件に一致する候補があります。下の情報源・影響範囲・修正版・必要権限を確認してください。実際の悪用・侵害は未確認です。';
+        foreach ($match['cwe'] as $cwe) if (isset($mapping[$cwe])) { $id=$mapping[$cwe]; $items[$id]['level']='high'; $items[$id]['reason']='既知脆弱性データの分類と影響版条件が一致する候補があります。製品の同定・成立条件・修正版を下の詳細で確認してください。攻撃試験は行っていません。'; }
+    }
     return array_values($items);
 }

@@ -4,10 +4,11 @@ if (PHP_SAPI !== 'cli') exit;
 set_exception_handler(function (Throwable $error) { fwrite(STDERR, get_class($error) . ': ' . $error->getMessage() . PHP_EOL); exit(1); });
 $root = dirname(__DIR__); $mode = $argv[1] ?? 'main';
 $password = trim(file_get_contents($root . '/.wphm-test/db-password.txt'));
-$database = 'wphm_sc_test_' . bin2hex(random_bytes(6));
+$database = $mode==='network-setup' ? ($argv[2] ?? '') : 'wphm_sc_test_' . bin2hex(random_bytes(6));
+if (!preg_match('/^wphm_sc_test_[a-f0-9]{12}$/D',$database)) throw new RuntimeException('Invalid disposable database');
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 $connection = new mysqli('127.0.0.1', 'root', $password, '', 33077);
-$connection->query("CREATE DATABASE `{$database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+if ($mode!=='network-setup') $connection->query("CREATE DATABASE `{$database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 $checks = 0;
 function sc_same($expected, $actual, string $label): void {
     global $checks; $checks++;
@@ -15,8 +16,14 @@ function sc_same($expected, $actual, string $label): void {
 }
 class SecurityCheckExit extends Exception {}
 try {
-    define('ABSPATH', $root . '/.wphm-test/wordpress/');
-    foreach (['DB_NAME' => $database, 'DB_USER' => 'root', 'DB_PASSWORD' => $password, 'DB_HOST' => '127.0.0.1:33077', 'DB_CHARSET' => 'utf8mb4', 'DB_COLLATE' => '', 'WP_CONTENT_DIR' => $root . '/.wphm-test/security-check-content', 'WP_CONTENT_URL' => 'https://example.invalid/wp-content', 'WP_HOME' => 'https://example.invalid', 'WP_SITEURL' => 'https://example.invalid', 'WP_ADMIN' => $mode !== 'front', 'WP_INSTALLING' => true, 'WP_DEBUG' => true, 'WP_DEBUG_DISPLAY' => false, 'WP_DEBUG_LOG' => $root . '/.wphm-test/security-check-debug.log', 'DISABLE_WP_CRON' => true, 'WP_HTTP_BLOCK_EXTERNAL' => true, 'AUTOMATIC_UPDATER_DISABLED' => true] as $key => $value) define($key, $value);
+    if ($mode==='multisite') {
+        $command=escapeshellarg(PHP_BINARY).' -n -d extension_dir='.escapeshellarg(ini_get('extension_dir')).' -d extension=mysqli -d extension=mbstring -d extension=openssl -d extension=curl '.escapeshellarg(__FILE__).' network-setup '.escapeshellarg($database);
+        passthru($command,$status); sc_same(0,$status,'native network database initialized');
+        define('MULTISITE',true); define('SUBDOMAIN_INSTALL',false);
+        define('DOMAIN_CURRENT_SITE','example.invalid'); define('PATH_CURRENT_SITE','/'); define('SITE_ID_CURRENT_SITE',1); define('BLOG_ID_CURRENT_SITE',1);
+    }
+    define('ABSPATH', getenv('WPHM_TEST_WORDPRESS') ?: $root . '/.wphm-test/wordpress/');
+    foreach (['DB_NAME' => $database, 'DB_USER' => 'root', 'DB_PASSWORD' => $password, 'DB_HOST' => '127.0.0.1:33077', 'DB_CHARSET' => 'utf8mb4', 'DB_COLLATE' => '', 'WP_CONTENT_DIR' => $root . '/.wphm-test/security-check-content-' . substr($database,-12), 'WP_CONTENT_URL' => 'https://example.invalid/wp-content', 'WP_HOME' => 'https://example.invalid', 'WP_SITEURL' => 'https://example.invalid', 'WP_ADMIN' => $mode !== 'front', 'WP_INSTALLING' => true, 'WP_DEBUG' => true, 'WP_DEBUG_DISPLAY' => false, 'WP_DEBUG_LOG' => $root . '/.wphm-test/security-check-debug.log', 'DISABLE_WP_CRON' => true, 'WP_HTTP_BLOCK_EXTERNAL' => true, 'AUTOMATIC_UPDATER_DISABLED' => true] as $key => $value) define($key, $value);
     foreach (['plugins', 'themes', 'mu-plugins', 'uploads'] as $directory) if (!is_dir(WP_CONTENT_DIR . '/' . $directory)) mkdir(WP_CONTENT_DIR . '/' . $directory, 0777, true);
     file_put_contents(WP_CONTENT_DIR . '/plugins/sc-fixture.php', "<?php\n/* Plugin Name: Security Check Fixture\nVersion: 1.0\nPlugin URI: https://example.invalid/plugin/\n*/\n");
     file_put_contents(WP_CONTENT_DIR . '/plugins/private-fixture.php', "<?php\n/* Plugin Name: Private Fixture\nVersion: 1.0\nUpdate URI: https://private.invalid/\n*/\n");
@@ -37,22 +44,44 @@ try {
         if ($api_mode === 'oversize') return ['response' => ['code' => 200], 'headers' => [], 'body' => str_repeat('a', 1048577)];
         if ($api_mode === 'redirect') return ['response' => ['code' => 302], 'headers' => ['location' => 'http://127.0.0.1/private'], 'body' => ''];
         $data = [];
+        if (strpos($url,'www.wpvulnerability.net/') !== false) {
+            $parts=explode('/',trim((string)wp_parse_url($url,PHP_URL_PATH),'/'));
+            $data=['error'=>0,'data'=>[$parts[0]=>$parts[1],'vulnerability'=>[]]];
+        }
         if (strpos($url, '/stable-check/') !== false) $data = [$wp_version => $api_mode === 'insecure' ? 'insecure' : ($api_mode === 'updates' ? 'outdated' : 'latest')];
         if (strpos($url, '/serve-happy/') !== false) $data = ['is_secure' => $api_mode !== 'old_php', 'is_supported' => true];
         if (strpos($url, '/plugins/update-check/') !== false) $data = ['plugins' => $api_mode === 'updates' ? ['sc-fixture.php' => ['new_version' => '2.0']] : [], 'no_update' => ['sc-fixture.php' => ['new_version' => '1.0']]];
         if (strpos($url, '/themes/update-check/') !== false) $data = ['themes' => [], 'no_update' => ['sc-fixture' => ['new_version' => '1.0']]];
         return ['response' => ['code' => 200], 'headers' => ['content-type' => 'application/json'], 'body' => wp_json_encode($data)];
     }, 10, 3);
-    $installed = wp_install('Passive checker fixture', 'fixtureadmin', 'fixture@example.invalid', false, '', bin2hex(random_bytes(12)));
+    $installed = $mode==='multisite' ? ['user_id'=>1] : wp_install('Passive checker fixture', 'fixtureadmin', 'fixture@example.invalid', false, '', bin2hex(random_bytes(12)));
     wp_installing(false); wp_set_current_user((int)$installed['user_id']);
+    if ($mode==='network-setup') {
+        foreach($wpdb->tables('ms_global') as $name=>$table) $wpdb->$name=$table;
+        install_network();
+        populate_network(1,'example.invalid','fixture@example.invalid','Passive checker network','/',false);
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$wpdb->esc_like($wpdb->sitemeta)))!==$wpdb->sitemeta) throw new RuntimeException('Network tables missing');
+        echo "Native WordPress network installed.\n";
+    } else {
     update_option('timezone_string', 'Asia/Tokyo');
     update_option('stylesheet', 'sc-fixture'); update_option('template', 'sc-fixture');
     if ($mode === 'disabled') update_option('wphm_tool_states', ['security_check' => false]);
     require $root . '/wp-helpers-multi.php';
-    if ($mode !== 'main') {
+    if ($mode === 'multisite') {
+        require __DIR__ . '/security-check-multisite.php';
+        echo "PASS: {$checks} native multisite security-check assertions.\n";
+    } elseif ($mode !== 'main') {
         sc_same(false, function_exists('wphm_sc_collect'), $mode . ': checker module not loaded');
         sc_same(false, has_action('wp_ajax_wphm_security_check'), $mode . ': no AJAX hook');
         sc_same(true, function_exists('wphm_access_log_build_row'), $mode . ': existing log module still loaded');
+        if ($mode==='front') {
+            sc_same(true,function_exists('wphm_sc_observe_request'),'enabled lightweight observation module available on front');
+            sc_same(false,wphm_sc_telemetry_schema(),'front request cannot create counter schema');
+            sc_same(null,$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$wpdb->esc_like($wpdb->prefix.'wphm_security_counts'))),'front request leaves counter schema absent');
+        } else {
+            sc_same(false,function_exists('wphm_sc_observe_request'),'disabled checker has no observation module');
+            sc_same(false,has_action('wp_login_failed','wphm_sc_login_failed'),'disabled checker registers no authentication observer');
+        }
         echo "PASS: {$checks} {$mode} isolation assertions.\n";
     } else {
         sc_same(true, wphm_is_tool_enabled('security_check'), 'enabled by default');
@@ -73,7 +102,8 @@ try {
         sc_same(0, count($calls), 'initial check uses saved update data without HTTP');
         sc_same(10, count($local['items']), 'all ten attacks represented');
         $items = array_column($local['items'], null, 'id');
-        foreach (['brute_force', 'credential_stuffing', 'sql_injection', 'xss', 'ddos', 'csrf', 'directory_traversal'] as $key) sc_same('unknown', $items[$key]['level'], 'insufficient evidence never guessed: ' . $key);
+        foreach (['brute_force', 'credential_stuffing', 'ddos'] as $key) sc_same('unknown', $items[$key]['level'], 'insufficient evidence never guessed: ' . $key);
+        foreach (['sql_injection','xss','csrf','directory_traversal'] as $key) sc_same('low',$items[$key]['level'],'low is scoped to the exact reviewed plugin files: '.$key);
         sc_same('medium', $items['rce']['level'], 'current admin code-edit permission is a scoped hardening concern');
         sc_same('unknown', $items['file_upload']['level'], 'default upload restrictions do not prove all upload handlers safe');
         sc_same('unknown', $items['vulnerability_exploit']['level'], 'missing update data never considered safe');
@@ -96,8 +126,9 @@ try {
         sc_same($before_updates, serialize(get_site_transient('update_plugins')), 'standard WordPress update notifications untouched');
         sc_same($core_before, serialize(wphm_sc_saved_site_transient('update_core')), 'core update notification untouched');
         sc_same($themes_before, serialize(wphm_sc_saved_site_transient('update_themes')), 'theme update notification untouched');
-        sc_same(4, count($calls), 'recheck uses four fixed metadata endpoints');
-        foreach ($calls as $call) {
+        $wp_calls=array_values(array_filter($calls,function($call){return wp_parse_url($call['url'],PHP_URL_HOST)==='api.wordpress.org';}));
+        sc_same(4, count($wp_calls), 'recheck uses four fixed WordPress metadata endpoints');
+        foreach ($wp_calls as $call) {
             sc_same('api.wordpress.org', wp_parse_url($call['url'], PHP_URL_HOST), 'no site scanning or arbitrary target');
             sc_same(0, $call['args']['redirection'], 'metadata redirects never followed');
             sc_same(3, $call['args']['timeout'], 'metadata request timeout bounded');
@@ -159,7 +190,7 @@ try {
         $observer = wp_create_user('scobserver', bin2hex(random_bytes(12)), 'observer@example.invalid');
         $observer_user = new WP_User($observer); $observer_user->set_role('administrator'); $observer_user->add_cap('edit_plugins', false); $observer_user->add_cap('edit_themes', false);
         wp_set_current_user($observer);
-        sc_same('unknown', array_column(wphm_sc_report()['items'], 'level', 'id')['rce'], 'cached permission facts are isolated per administrator');
+        sc_same(false, wphm_sc_report()['facts']['file_edit_allowed'], 'cached current-user permission facts are isolated per administrator');
         wp_set_current_user((int)$installed['user_id']);
         sc_same('medium', array_column(wphm_sc_report()['items'], 'level', 'id')['rce'], 'original administrator retains own permission result');
         define('DOING_AJAX', true);
@@ -174,13 +205,14 @@ try {
         sc_same($before, count($calls), 'invalid nonce cannot initiate metadata requests');
         sc_same(false, $ajax($nonce, 'GET')['success'], 'GET cannot trigger a recheck');
         sc_same($before, count($calls), 'rejected GET does not send metadata requests');
+        delete_option('wphm_sc_last_recheck');
         $_SERVER['REQUEST_METHOD'] = 'POST'; $_POST = $_REQUEST = ['nonce' => $nonce, 'wphm_sc_action' => 'recheck'];
         wphm_sc_handle_request();
         sc_same(true, $GLOBALS['wphm_sc_page_report']['refreshed'], 'native POST fallback rechecks without JavaScript');
         $_SERVER['REQUEST_METHOD'] = 'GET';
-        $connection->query("SELECT GET_LOCK('wphm_sc_" . substr(hash('sha256', DB_NAME . ':' . $wpdb->prefix), 0, 40) . "',0)");
+        $held_lease=wphm_sc_acquire_lease();
         sc_same(false, $ajax($nonce)['success'], 'concurrent scan rejected without modifying other feature locks');
-        $connection->query("SELECT RELEASE_LOCK('wphm_sc_" . substr(hash('sha256', DB_NAME . ':' . $wpdb->prefix), 0, 40) . "')");
+        wphm_sc_release_lease($held_lease);
         $subscriber = wp_create_user('scsubscriber', bin2hex(random_bytes(12)), 'subscriber@example.invalid');
         wp_set_current_user($subscriber); $before = count($calls);
         sc_same(false, $ajax($nonce)['success'], 'subscriber denied');
@@ -199,6 +231,8 @@ try {
         sc_same(2000, $bounded['sampled'], 'log observation hard limit'); sc_same(true, $bounded['limited'], 'partial observation disclosed');
         sc_same($before_updates, serialize(get_site_transient('update_plugins')), 'update cache remains unchanged after all checks');
         sc_same('', $wpdb->last_error, 'no database errors');
+        require __DIR__ . '/security-check-extended.php';
         echo "PASS: {$checks} native WordPress security-check assertions.\n";
     }
-} finally { $connection->query("DROP DATABASE `{$database}`"); $connection->close(); }
+    }
+} finally { if ($mode!=='network-setup') $connection->query("DROP DATABASE `{$database}`"); $connection->close(); }
