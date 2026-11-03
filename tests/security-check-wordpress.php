@@ -14,6 +14,12 @@ function sc_same($expected, $actual, string $label): void {
     global $checks; $checks++;
     if ($expected !== $actual) throw new RuntimeException($label . ': ' . var_export($actual, true));
 }
+function sc_limiter_evidence(array &$facts, ?array $limiter): void {
+    $facts['identity']['limiter']=$limiter;
+    $limits=$limiter===null?[]:[$limiter+['source'=>'wordpress','enabled'=>true,'applied'=>true,'period'=>300,'routes'=>['wp_login']]];
+    $facts['identity']['limiters']=$limits;
+    if(isset($facts['acquisition'])) $facts['acquisition']['sources']['wordpress']['login_limits']=$limits;
+}
 class SecurityCheckExit extends Exception {}
 try {
     if ($mode==='multisite') {
@@ -120,7 +126,7 @@ try {
         wphm_sc_collect();
         sc_same(0, count($calls), 'reading populated update data bypasses updater filters and HTTP');
         $fresh = wphm_sc_collect(true); $fresh_items = array_column($fresh['items'], null, 'id');
-        sc_same('low', $fresh_items['vulnerability_exploit']['level'], 'complete public-product comparison without a match has explicitly limited low scope');
+        sc_same('unknown', $fresh_items['vulnerability_exploit']['level'], 'unsupported private products keep the complete checklist unconfirmed');
         sc_same(0, $fresh['facts']['updates']['plugins']['pending'], 'fresh API result used instead of previous update flag');
         sc_same(1, $fresh['facts']['updates']['plugins']['unknown'], 'private update provider remains unverified');
         sc_same($before_updates, serialize(get_site_transient('update_plugins')), 'standard WordPress update notifications untouched');
@@ -173,7 +179,7 @@ try {
         update_option('users_can_register', 0); update_option('default_role', 'subscriber');
         $facts['file_uploads'] = false;
         $fixture = ['checked_at' => time(), 'refreshed' => true, 'facts' => $facts, 'items' => wphm_sc_assess($facts)];
-        $escape = $fixture; $escape['items'][0]['state'] = '<img src=x onerror=alert(1)>';
+        $escape = $fixture; $escape['items'][0]['checks'][0]['value'] = '<img src=x onerror=alert(1)>';
         ob_start(); wphm_sc_report_html($escape); $html = ob_get_clean();
         sc_same(false, strpos($html, '<img src=x') !== false, 'fact text HTML escaped');
         sc_same(true, strpos($html, '&lt;img') !== false, 'escaped fact displayed as text');
@@ -233,6 +239,7 @@ try {
         sc_same($before_updates, serialize(get_site_transient('update_plugins')), 'update cache remains unchanged after all checks');
         sc_same('', $wpdb->last_error, 'no database errors');
         require __DIR__ . '/security-check-extended.php';
+        require __DIR__ . '/security-check-acquisition.php';
         echo "PASS: {$checks} native WordPress security-check assertions.\n";
     }
     }

@@ -6,6 +6,7 @@ $temporary = $workspace . '/.wphm-test';
 $core = $temporary . '/wordpress/';
 $password = trim(file_get_contents($temporary . '/db-password.txt'));
 $mode = $argv[1] ?? 'check';
+const WPHM_MAINTENANCE_TEST_UPDATE='999.0.0';
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 if ($mode === 'cleanup') {
     $runtime = json_decode(file_get_contents($temporary . '/maintenance-runtime.json'), true);
@@ -31,7 +32,7 @@ if ($mode === 'setup') {
     $config .= "if (!defined('WP_ADMIN')) define('WP_ADMIN', true);\n\$table_prefix = 'wphmmaint_';\nif (!defined('ABSPATH')) define('ABSPATH', __DIR__ . '/');\nrequire_once ABSPATH . 'wp-settings.php';\n";
     file_put_contents($core . 'wp-config.php', $config);
     foreach (['plugins', 'themes', 'mu-plugins', 'uploads'] as $directory) if (!is_dir($core . 'wp-content/' . $directory)) mkdir($core . 'wp-content/' . $directory, 0777, true);
-    file_put_contents($temporary . '/update-fixture.json', json_encode(['version' => '0.9.2', 'download_url' => 'https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip']));
+    file_put_contents($temporary . '/update-fixture.json', json_encode(['version' => WPHM_MAINTENANCE_TEST_UPDATE, 'download_url' => 'https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip']));
     $fixture_code = <<<'PHP'
 <?php
 add_filter('pre_wp_mail', '__return_true');
@@ -79,7 +80,8 @@ if ($mode === 'setup') {
 $runtime = json_decode(file_get_contents($temporary . '/maintenance-runtime.json'), true); wp_set_current_user($runtime['user']);
 $checks = 0;
 function same($expected, $actual, $label) { global $checks; $checks++; if ($expected !== $actual) throw new RuntimeException($label . ': expected ' . var_export($expected, true) . ', got ' . var_export($actual, true)); }
-same('0.9.1', WPHM_VERSION, 'patch version');
+$plugin_headers = get_file_data(WPHM_PLUGIN_FILE, ['version' => 'Version']);
+same($plugin_headers['version'], WPHM_VERSION, 'loaded version matches plugin header');
 same('2026-10-25 12:34', fv_export_list_format_datetime('2026-10-25 12:34:56'), 'real WP local post date');
 same('2026-10-25 09:00:00', wphm_format_timestamp(strtotime('2026-10-25 00:00:00 UTC')), 'real WP epoch display');
 same(strtotime('2026-10-24 15:00:00 UTC'), wphm_access_log_date_to_ts('2026-10-25'), 'real WP local date filter');
@@ -94,25 +96,25 @@ foreach (['access_log' => 'wphm_access_log_handle_request', 'comment_manager' =>
     same(10, has_action('load-' . $hook, $callback), 'real pre-render hook: ' . $tool);
 }
 delete_site_transient('wphm_update_metadata_v1'); delete_site_transient('wphm_update_last_good_v1'); $GLOBALS['maintenance_update_requests'] = 0;
-$meta = ['version' => '0.9.2', 'download_url' => 'https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip', 'sections' => ['changelog' => '<script>bad</script><p>更新</p>']];
+$meta = ['version' => WPHM_MAINTENANCE_TEST_UPDATE, 'download_url' => 'https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip', 'sections' => ['changelog' => '<script>bad</script><p>更新</p>']];
 file_put_contents($temporary . '/update-fixture.json', json_encode($meta));
-same('0.9.2', wphm_get_update_metadata()['version'], 'metadata fetched via WP HTTP API');
+same(WPHM_MAINTENANCE_TEST_UPDATE, wphm_get_update_metadata()['version'], 'metadata fetched via WP HTTP API');
 same(false, strpos(wphm_get_update_metadata()['sections']['changelog'], '<script>') !== false, 'server HTML sanitized by WordPress');
-same('0.9.2', wphm_filter_plugin_information(false, 'plugin_information', (object) ['slug' => 'wp-helpers-multi'])->version, 'real plugin details');
+same(WPHM_MAINTENANCE_TEST_UPDATE, wphm_filter_plugin_information(false, 'plugin_information', (object) ['slug' => 'wp-helpers-multi'])->version, 'real plugin details');
 same(1, $GLOBALS['maintenance_update_requests'], 'real site transient prevents repeated HTTP');
 $plugin = plugin_basename(WPHM_PLUGIN_FILE);
 $list = wphm_filter_plugin_updates((object) ['response' => [], 'no_update' => [$plugin => (object) []]]);
-same('0.9.2', $list->response[$plugin]->new_version, 'real update entry');
+same(WPHM_MAINTENANCE_TEST_UPDATE, $list->response[$plugin]->new_version, 'real update entry');
 same(false, isset($list->no_update[$plugin]), 'opposite cached entry removed');
-same('0.9.2', apply_filters('update_plugins_plugin.pretty-cute.info', false, [], $plugin, [])['version'], 'core Update URI filter');
+same(WPHM_MAINTENANCE_TEST_UPDATE, apply_filters('update_plugins_plugin.pretty-cute.info', false, [], $plugin, [])['version'], 'core Update URI filter');
 delete_site_transient('wphm_update_metadata_v1'); file_put_contents($temporary . '/update-fixture.json', json_encode(['error' => true]));
-same('0.9.2', wphm_get_update_metadata()['version'], 'real HTTP failure uses last good metadata');
-same('0.9.2', wphm_get_update_metadata()['version'], 'real HTTP failure cached');
+same(WPHM_MAINTENANCE_TEST_UPDATE, wphm_get_update_metadata()['version'], 'real HTTP failure uses last good metadata');
+same(WPHM_MAINTENANCE_TEST_UPDATE, wphm_get_update_metadata()['version'], 'real HTTP failure cached');
 same(2, $GLOBALS['maintenance_update_requests'], 'real failure retry throttled');
-delete_site_transient('wphm_update_metadata_v1'); $meta['version'] = '0.9.1'; file_put_contents($temporary . '/update-fixture.json', json_encode($meta));
+delete_site_transient('wphm_update_metadata_v1'); $meta['version'] = WPHM_VERSION; file_put_contents($temporary . '/update-fixture.json', json_encode($meta));
 $list = wphm_filter_plugin_updates($list);
 same(false, isset($list->response[$plugin]), 'real stale notice cleared');
-same('0.9.1', $list->no_update[$plugin]->new_version, 'real current version retained');
+same(WPHM_VERSION, $list->no_update[$plugin]->new_version, 'real current version retained');
 $status_map = [];
 foreach ($wpdb->get_results('SELECT path,status FROM ' . wphm_access_log_table_name(), ARRAY_A) as $row) if (strpos($row['path'], '/front/') === 0) $status_map[$row['path']][] = (int) $row['status'];
 foreach (['ok' => 200, 'redirect' => 301, 'temporary' => 302, 'missing' => 404, 'blocked' => 403, 'error' => 500, 'fatal' => 500, 'double' => 200] as $path => $code) same([$code], $status_map['/front/' . $path] ?? [], 'recorded real HTTP status: ' . $path);

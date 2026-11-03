@@ -1,8 +1,9 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-function wphm_sc_identity_facts(): array {
-    $out = ['checked'=>0,'limited'=>false,'html_users'=>0,'raw_upload_users'=>0,'code_users'=>0,'admins'=>0,'mfa_known'=>0,'mfa_enabled'=>0,'mfa_providers'=>[],'mfa_error'=>false,'app_password_users'=>0,'roles'=>[],'limiter'=>null,'limiter_error'=>false];
+function wphm_sc_identity_facts(bool $enabled=true): array {
+    $out = ['checked'=>0,'limited'=>false,'html_users'=>0,'raw_upload_users'=>0,'code_users'=>0,'admins'=>0,'mfa_known'=>0,'mfa_enabled'=>0,'mfa_providers'=>[],'mfa_error'=>false,'app_password_users'=>0,'roles'=>[],'limiter'=>null,'limiters'=>[],'limiter_error'=>false,'xmlrpc_auth'=>false,'application_passwords'=>null];
+    if(!$enabled) return $out;
     $roles = wp_roles()->roles;
     foreach (array_slice($roles,0,100,true) as $slug=>$role) {
         $caps = is_array($role['capabilities'] ?? null) ? $role['capabilities'] : [];
@@ -31,21 +32,51 @@ function wphm_sc_identity_facts(): array {
         $function = $callback['function'] ?? null;
         if (!is_array($function) || !isset($function[0],$function[1]) || !is_object($function[0]) || !is_a($function[0],'Limit_Login_Attempts') || $function[1] !== 'wp_authenticate_user' || !is_callable([$function[0],'get_option'])) continue;
         try {
-            $tries=$function[0]->get_option('allowed_retries'); $duration=$function[0]->get_option('lockout_duration');
-            if (is_numeric($tries) && is_numeric($duration) && $tries>=1 && $tries<=100 && $duration>=1 && $duration<=86400) $out['limiter']=['name'=>'Limit Login Attempts / Reloaded','tries'=>(int)$tries,'seconds'=>(int)$duration];
+            $tries=wphm_sc_setting_integer($function[0]->get_option('allowed_retries'),1,100); $duration=wphm_sc_setting_integer($function[0]->get_option('lockout_duration'),1,86400);
+            if ($tries!==null && $duration!==null) {
+                $out['limiter']=['name'=>'Limit Login Attempts / Reloaded','tries'=>(int)$tries,'seconds'=>(int)$duration];
+                $period=wphm_sc_setting_integer($function[0]->get_option('valid_duration'),1,86400);
+                $out['limiters'][]=$out['limiter']+['source'=>'wordpress','enabled'=>true,'applied'=>true,'routes'=>['wp_login'],'period'=>$period ?? 0];
+            }
             else $out['limiter_error']=true;
         } catch (Throwable $exception) { $out['limiter_error']=true; }
     }
     $out['xmlrpc_auth']=(bool)apply_filters('xmlrpc_enabled',true);
     $out['application_passwords']=function_exists('wp_is_application_passwords_available') ? (bool)wp_is_application_passwords_available() : null;
-    if ($out['limiter']===null) { $wf_error=false; $out['limiter']=wphm_sc_wordfence_limiter($wf_error); $out['limiter_error']=$out['limiter_error'] || $wf_error; }
+    $wf_error=false; $wf_limit=wphm_sc_wordfence_limiter($wf_error); $out['limiter_error']=$out['limiter_error'] || $wf_error;
+    if($wf_limit!==null) {
+        if($out['limiter']===null) $out['limiter']=$wf_limit;
+        try { $period=wphm_sc_setting_integer(\wfConfig::get('loginSec_countFailMins'),1,1440); } catch(Throwable $error) { $period=null; }
+        $out['limiters'][]=$wf_limit+['source'=>'wordpress','enabled'=>true,'applied'=>true,'routes'=>['wp_login'],'period'=>$period===null?0:$period*60];
+    }
+    if($wf_limit===null && !$wf_error && is_callable(['wfConfig','get']) && has_filter('authenticate','wordfence::authenticateFilter')!==false) {
+        try { if(in_array(\wfConfig::get('loginSecurityEnabled'),[false,0,'0'],true)) $out['limiters'][]=['name'=>'Wordfence','source'=>'wordpress','enabled'=>false,'applied'=>true,'routes'=>['wp_login'],'tries'=>0,'period'=>0,'seconds'=>0]; } catch(Throwable $error) { $out['limiter_error']=true; }
+    }
     // Explicit extension point for local, trusted integration code. No remote URL is accepted.
-    $extension=apply_filters('wphm_security_auth_facts',[]);
-    if (is_array($extension) && isset($extension['limiter']['name'],$extension['limiter']['tries'],$extension['limiter']['seconds']) && is_string($extension['limiter']['name']) && is_numeric($extension['limiter']['tries']) && is_numeric($extension['limiter']['seconds']) && $extension['limiter']['tries']>=1 && $extension['limiter']['tries']<=100 && $extension['limiter']['seconds']>=1 && $extension['limiter']['seconds']<=86400) $out['limiter']=['name'=>sanitize_text_field(substr($extension['limiter']['name'],0,100)),'tries'=>(int)$extension['limiter']['tries'],'seconds'=>(int)$extension['limiter']['seconds']];
+    try { $extension=apply_filters('wphm_security_auth_facts',[]); } catch(Throwable $error) { $extension=[]; $out['limiter_error']=true; }
+    if(is_array($extension)) {
+        if(isset($extension['limiter'])) {
+            $legacy=$extension['limiter'];
+            $tries=is_array($legacy)?wphm_sc_setting_integer($legacy['tries'] ?? null,1,100):null;
+            $seconds=is_array($legacy)?wphm_sc_setting_integer($legacy['seconds'] ?? null,1,86400):null;
+            if(is_array($legacy) && is_string($legacy['name'] ?? null) && $tries!==null && $seconds!==null) {
+                $out['limiter']=['name'=>sanitize_text_field(substr($legacy['name'],0,100)),'tries'=>$tries,'seconds'=>$seconds];
+                $out['limiters'][]=$out['limiter']+['source'=>'wordpress','enabled'=>true,'applied'=>true,'routes'=>['wp_login'],'period'=>wphm_sc_setting_integer($legacy['period'] ?? null,1,86400) ?? 0];
+            } else $out['limiter_error']=true;
+        }
+        foreach(array_slice(is_array($extension['limiters'] ?? null)?$extension['limiters']:[],0,20) as $limit) {
+            $raw=['schema'=>1,'site'=>home_url('/'),'checked_at'=>time(),'login_limits'=>[$limit]];
+            $name=is_array($limit) && is_string($limit['name'] ?? null)?sanitize_text_field(substr($limit['name'],0,100)):'ローカル読取り連携';
+            $valid=wphm_sc_normalize_reader($raw,'wordpress',$name);
+            if($valid!==null) $out['limiters']=array_merge($out['limiters'],$valid['login_limits']); else $out['limiter_error']=true;
+        }
+    }
+    $out['limiters']=array_slice($out['limiters'],0,20);
     return $out;
 }
 
-function wphm_sc_file_facts(array $inventory): array {
+function wphm_sc_file_facts(array $inventory, bool $enabled=true): array {
+    if(!$enabled) return ['mime_count'=>0,'types_checked'=>false,'executable_types'=>[],'upload_bytes'=>0,'public_ajax'=>0,'scripts'=>0,'scanned'=>0,'limited'=>false,'scan_available'=>false,'rule_hint'=>false,'writable'=>null,'code_tools'=>[]];
     $types=get_allowed_mime_types(); $dangerous=[];
     $types_valid=is_array($types) && count($types)>0 && count($types)<=200;
     if ($types_valid) foreach($types as $pattern=>$mime) if(!is_string($pattern) || strlen($pattern)>200 || !is_string($mime)){ $types_valid=false; break; }

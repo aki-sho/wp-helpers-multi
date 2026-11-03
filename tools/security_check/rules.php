@@ -82,5 +82,7 @@ function wphm_sc_assess(array $facts): array {
     // Keep classifications from findings beyond the bounded detail list.
     if(!empty($vulns['affected'])) { $items['vulnerability_exploit']['level']='high'; $items['vulnerability_exploit']['reason']='識別名とインストール版が既知脆弱性の影響条件に一致する候補があります。表示件数の上限外も含めて検出しました。製品・成立条件・修正版を照合結果で確認してください。'; }
     foreach($vulns['cwe'] ?? [] as $cwe) if(isset($mapping[$cwe])) { $id=$mapping[$cwe]; $items[$id]['level']='high'; $items[$id]['reason']='影響版候補に該当する既知脆弱性の分類があります。表示件数の上限外も含めた判定です。製品と成立条件を照合結果で確認してください。'; }
-    return array_values(wphm_sc_focus_assessment($facts,$items));
+    $items=wphm_sc_focus_assessment($facts,$items);
+    if(isset($facts['acquisition'])) $items=wphm_sc_source_assessment($facts,$items);
+    return array_values($items);
 }

@@ -5,6 +5,7 @@ $api_mode='current';
 $positive=wphm_sc_collect(false)['facts'];
 $positive['telemetry']=array_replace($positive['telemetry'],['available'=>true,'requests'=>100,'failures'=>0,'successes'=>1,'after_failure'=>0,'auth_peak'=>0,'focused_failures'=>0,'peak'=>10,'errors'=>0,'saturated'=>false,'baseline_requests'=>0,'baseline_minutes'=>0,'recent_requests'=>10]);
 $positive['identity']=array_replace($positive['identity'],['admins'=>2,'mfa_known'=>2,'mfa_enabled'=>2,'mfa_error'=>false,'limited'=>false,'app_password_users'=>0,'limiter'=>['name'=>'Known limiter','tries'=>4,'seconds'=>1200],'limiter_error'=>false]);
+sc_limiter_evidence($positive,$positive['identity']['limiter']);
 $positive['files']=array_replace($positive['files'],['types_checked'=>true,'executable_types'=>[],'upload_bytes'=>2048,'scripts'=>0,'scan_available'=>true,'limited'=>false]);
 $positive['https']=true; $positive['unfiltered_uploads']=false; $positive['file_uploads']=true;
 $positive['updates']['core']['status']='latest'; $positive['updates']['core']['pending']=false;
@@ -13,13 +14,13 @@ $positive['vulnerabilities']=['enabled'=>true,'eligible'=>3,'checked'=>3,'total'
 $focus=['brute_force','credential_stuffing','ddos','file_upload','vulnerability_exploit'];
 $assessed=array_column(wphm_sc_assess($positive),null,'id');
 foreach($focus as $id) {
-    sc_same('low',$assessed[$id]['level'],'positive observations have scoped low result: '.$id);
+    sc_same($id==='vulnerability_exploit'?'unknown':'low',$assessed[$id]['level'],'checklist status follows confirmed facts, keeping unsupported products unknown: '.$id);
     sc_same(true,count($assessed[$id]['checks'])>=3,'individual observations shown: '.$id);
-    sc_same(true,strpos($assessed[$id]['reason'],'低')!==false,'low scope explicitly explained: '.$id);
+    sc_same(true,strpos($assessed[$id]['reason'],$id==='vulnerability_exploit'?'取得':'低')!==false,'result limits explicitly explained: '.$id);
 }
 sc_same('unavailable',$assessed['vulnerability_exploit']['checks'][2]['status'],'private products remain outside the known-vulnerability comparison');
-$check=$positive; $check['identity']['limiter']=null;
-sc_same('setup',array_column(wphm_sc_assess($check),null,'id')['brute_force']['checks'][0]['status'],'missing limiter is actionable setup');
+$check=$positive; sc_limiter_evidence($check,null);
+sc_same('pending',array_column(wphm_sc_assess($check),null,'id')['brute_force']['checks'][0]['status'],'unread limiter is unknown, not a claim that protection needs setup');
 $check['identity']['limiter_error']=true;
 sc_same('error',array_column(wphm_sc_assess($check),null,'id')['brute_force']['checks'][0]['status'],'provider read failure distinct from missing setup');
 $check=$positive; $check['identity']['mfa_enabled']=1;
@@ -240,7 +241,7 @@ try {
     $retry=wphm_sc_report(true);
     sc_same(0,$retry['facts']['vulnerabilities']['failed'],'new explicit recheck can retry prior run failure');
     sc_same(24,$vuln_calls,'successful cached products not fetched again');
-    sc_same('low',array_column($retry['items'],'level','id')['vulnerability_exploit'],'finished explicit retry has a known comparison result');
+    sc_same('unknown',array_column($retry['items'],'level','id')['vulnerability_exploit'],'finished supported comparison does not clear unsupported products');
 } finally {
     if($run_filter!==null) remove_filter('pre_http_request',$run_filter,40);
     foreach($test_files as $path) if(is_file($path)) unlink($path);
@@ -261,7 +262,7 @@ sc_same(false,strpos(wphm_sc_failure_message(new RuntimeException('secret/path/t
 delete_option('wphm_sc_last_recheck');
 $throwing=function() { throw new RuntimeException('secret/path/token'); }; add_filter('wphm_security_auth_facts',$throwing,99);
 $reply=$ajax_input(['nonce'=>$nonce]); remove_filter('wphm_security_auth_facts',$throwing,99);
-sc_same(false,$reply['success'],'unexpected adapter exception returns controlled JSON failure');
+sc_same(true,$reply['success'],'failed local adapter is isolated and other result collection continues');
 sc_same(false,strpos(wp_json_encode($reply),'secret/path/token')!==false,'unexpected adapter exception text never exposed');
 sc_same(false,get_option('wphm_sc_check_lock',false),'unexpected exception releases owner lease');
 $_SERVER['REQUEST_METHOD']='GET'; $_POST=$_REQUEST=[];

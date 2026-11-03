@@ -3,11 +3,14 @@ if (!defined('ABSPATH')) exit;
 
 function wphm_sc_options(): array {
     $saved = get_option('wphm_sc_options', []);
-    $defaults=['vulnerabilities'=>true,'cf_zone'=>'','cf_secret'=>'','uploads_execution'=>'unknown','vendor_patches'=>'unknown','evidence'=>'','attested_at'=>0,'auth_failures'=>20,'auth_focus'=>10,'traffic_peak'=>600,'http_errors'=>20,'error_percent'=>5];
+    $defaults=['vulnerabilities'=>true,'updates'=>true,'cf_zone'=>'','cf_secret'=>'','server_provider'=>'local','server_connection'=>'','server_secret'=>'','edge_provider'=>'cloudflare','edge_connection'=>'','edge_secret'=>'','uploads_execution'=>'unknown','vendor_patches'=>'unknown','evidence'=>'','attested_at'=>0,'auth_failures'=>20,'auth_focus'=>10,'traffic_peak'=>600,'http_errors'=>20,'error_percent'=>5];
     $out=array_merge($defaults,is_array($saved)?array_intersect_key($saved,$defaults):[]);
-    foreach(['cf_zone','cf_secret','evidence'] as $key) if(!is_string($out[$key])) $out[$key]='';
+    foreach(['cf_zone','cf_secret','evidence','server_provider','server_connection','server_secret','edge_provider','edge_connection','edge_secret'] as $key) if(!is_string($out[$key])) $out[$key]=$defaults[$key];
     foreach(['uploads_execution','vendor_patches'] as $key) if(!is_string($out[$key]) || !in_array($out[$key],['unknown','yes','no'],true)) $out[$key]='unknown';
     $out['vulnerabilities']=in_array($out['vulnerabilities'],[true,1,'1'],true);
+    $out['updates']=in_array($out['updates'],[true,1,'1'],true);
+    $preferences=get_user_option('wphm_sc_sources',get_current_user_id());
+    if(is_array($preferences)) foreach(['updates','vulnerabilities'] as $key) if(isset($preferences[$key]) && is_bool($preferences[$key])) $out[$key]=$preferences[$key];
     $out['attested_at']=is_numeric($out['attested_at'])?max(0,(int)$out['attested_at']):0;
     foreach(wphm_sc_threshold_bounds() as $key=>$bound) $out[$key]=is_scalar($out[$key]) && ctype_digit((string)$out[$key]) ? max($bound[0],min($bound[1],(int)$out[$key])) : $defaults[$key];
     return $out;
@@ -35,7 +38,7 @@ function wphm_sc_save_options(array $input): void {
     if (!wphm_sc_allowed()) throw new WPHM_Security_Check_Exception('この設定を変更する権限がありません。');
     $options = wphm_sc_options();
     foreach(['cf_zone','cf_token','clear_cf','vulnerabilities','uploads_execution','vendor_patches','evidence','confirm_server','auth_failures','auth_focus','traffic_peak','http_errors','error_percent'] as $key) if(isset($input[$key]) && !is_scalar($input[$key])) throw new WPHM_Security_Check_Exception('設定項目の形式が不正です。');
-    $zone = isset($input['cf_zone']) && is_string($input['cf_zone']) ? trim(wp_unslash($input['cf_zone'])) : '';
+    $zone = isset($input['cf_zone']) && is_string($input['cf_zone']) ? trim(wp_unslash($input['cf_zone'])) : $options['cf_zone'];
     if ($zone !== '' && !preg_match('/^[a-f0-9]{32}$/D', $zone)) throw new WPHM_Security_Check_Exception('CloudflareのZone IDは32桁の小文字英数字で指定してください。');
     $token = isset($input['cf_token']) && is_string($input['cf_token']) ? trim(wp_unslash($input['cf_token'])) : '';
     if ($token !== '' && !preg_match('/^[A-Za-z0-9_-]{20,256}$/D', $token)) throw new WPHM_Security_Check_Exception('CloudflareのAPIトークンの形式を確認してください。');
@@ -59,6 +62,10 @@ function wphm_sc_save_options(array $input): void {
         if(!ctype_digit((string)$input[$key]) || strlen((string)$input[$key])>6 || (int)$input[$key]<$bound[0] || (int)$input[$key]>$bound[1]) throw new WPHM_Security_Check_Exception('観測の注意基準が指定範囲外です。');
         $options[$key]=(int)$input[$key];
     }
+    if(($input['wphm_sc_thresholds_form'] ?? '')==='1') {
+        $global=get_option('wphm_sc_options',[]);
+        foreach(['updates','vulnerabilities'] as $key) $options[$key]=is_array($global) && array_key_exists($key,$global)?in_array($global[$key],[true,1,'1'],true):true;
+    }
     update_option('wphm_sc_options', $options, false);
     // Invalidate all administrators' report caches using a shared revision, without enumerating users.
     update_option('wphm_sc_revision', wp_generate_password(16, false, false), false);
@@ -66,25 +73,68 @@ function wphm_sc_save_options(array $input): void {
     delete_transient('wphm_sc_job_'.get_current_user_id());
 }
 
+/** Called only by a capability/nonce-protected POST, before any acquisition starts. */
+function wphm_sc_save_sources(array $input): void {
+    if(!wphm_sc_allowed()) throw new WPHM_Security_Check_Exception('この設定を変更する権限がありません。');
+    $old=wphm_sc_options(); $next=$old; $selection=[];
+    foreach(array_merge(array_keys(wphm_sc_source_names()),['updates','vulnerabilities']) as $key) {
+        $field='source_'.$key;
+        if(isset($input[$field]) && (!is_string($input[$field]) || $input[$field]!=='1')) throw new WPHM_Security_Check_Exception('取得元の選択形式が不正です。');
+        $selection[$key]=isset($input[$field]);
+    }
+    $readers=wphm_sc_readers();
+    foreach(['server','edge'] as $source) {
+        foreach(['provider','connection','token'] as $suffix) if(isset($input[$source.'_'.$suffix]) && !is_string($input[$source.'_'.$suffix])) throw new WPHM_Security_Check_Exception('読取り連携の入力形式が不正です。');
+        $id=isset($input[$source.'_provider'])?trim(wp_unslash($input[$source.'_provider'])):$old[$source.'_provider'];
+        if(!preg_match('/^[a-z][a-z0-9_-]{0,39}$/D',$id)) throw new WPHM_Security_Check_Exception('読取り連携IDの形式が不正です。');
+        if(!(($source==='server' && $id==='local') || ($source==='edge' && $id==='cloudflare') || (isset($readers[$id]) && $readers[$id]['source']===$source) || (!$selection[$source] && $id===$old[$source.'_provider']))) throw new WPHM_Security_Check_Exception('この読取り連携は登録されていません。');
+        $next[$source.'_provider']=$id;
+        if(isset($input[$source.'_connection'])) {
+            $value=trim(wp_unslash($input[$source.'_connection']));
+            if($value!=='' && (!preg_match('/^[A-Za-z0-9_.:-]{1,128}$/D',$value) || preg_match('/^[A-Za-z]:/D',$value))) throw new WPHM_Security_Check_Exception('接続IDは128文字以内の英数字・記号で指定してください。URLやファイルパスは指定できません。');
+            $next[$source.'_connection']=$value;
+        }
+        $token=isset($input[$source.'_token'])?trim(wp_unslash($input[$source.'_token'])):'';
+        if($token!=='' && !preg_match('/^[A-Za-z0-9_.+\/=~-]{20,512}$/D',$token)) throw new WPHM_Security_Check_Exception('読取りキーの形式を確認してください。');
+        if(isset($input['clear_'.$source]) && $input['clear_'.$source]!=='1') throw new WPHM_Security_Check_Exception('キー削除の指定が不正です。');
+        if(!empty($input['clear_'.$source])) $next[$source.'_secret']='';
+        elseif($token!=='') $next[$source.'_secret']=wphm_sc_secret($token);
+    }
+    foreach(['cf_zone','cf_token','clear_cf'] as $key) if(isset($input[$key]) && !is_string($input[$key])) throw new WPHM_Security_Check_Exception('Cloudflare接続の入力形式が不正です。');
+    if(isset($input['cf_zone'])) {
+        $zone=trim(wp_unslash($input['cf_zone']));
+        if($zone!=='' && !preg_match('/^[a-f0-9]{32}$/D',$zone)) throw new WPHM_Security_Check_Exception('CloudflareのZone IDは32桁の小文字英数字で指定してください。');
+        $next['cf_zone']=$zone;
+    }
+    $token=isset($input['cf_token'])?trim(wp_unslash($input['cf_token'])):'';
+    if($token!=='' && !preg_match('/^[A-Za-z0-9_-]{20,256}$/D',$token)) throw new WPHM_Security_Check_Exception('Cloudflareの読取りトークンの形式を確認してください。');
+    if(isset($input['clear_cf']) && $input['clear_cf']!=='1') throw new WPHM_Security_Check_Exception('キー削除の指定が不正です。');
+    if(!empty($input['clear_cf'])) $next['cf_secret']=''; elseif($token!=='') $next['cf_secret']=wphm_sc_secret($token);
+    // Do not overwrite other administrators' public-reference choices.
+    $stored=get_option('wphm_sc_options',[]);
+    foreach(['updates','vulnerabilities'] as $key) $next[$key]=is_array($stored) && array_key_exists($key,$stored)?in_array($stored[$key],[true,1,'1'],true):true;
+    $old_stored=$old;
+    foreach(['updates','vulnerabilities'] as $key) $old_stored[$key]=$next[$key];
+    if($next!==$old_stored) {
+        update_option('wphm_sc_options',$next,false);
+        update_option('wphm_sc_revision',wp_generate_password(16,false,false),false);
+        foreach(['wphm_sc_cf_metadata','wphm_sc_reader_server','wphm_sc_reader_edge'] as $key) delete_option($key);
+    }
+    update_user_option(get_current_user_id(),'wphm_sc_sources',$selection,false);
+}
+
 function wphm_sc_settings_html(): void {
     $options = wphm_sc_options();
     ?>
-    <details id="wphm-sc-settings" class="wphm-panel wphm-sc-details wphm-sc-settings"><summary>各項目の設定・連携・観測基準</summary>
+    <details id="wphm-sc-settings" class="wphm-panel wphm-sc-details wphm-sc-settings"><summary>各項目の設定・観測基準</summary>
     <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=wphm-security-check')); ?>">
         <?php wp_nonce_field('wphm_security_check', 'nonce'); ?>
         <input type="hidden" name="wphm_sc_action" value="settings">
-        <p><label><input type="checkbox" name="vulnerabilities" value="1" <?php checked($options['vulnerabilities']); ?>>再チェックでWPVulnerabilityの公開データと照合する</label></p>
-        <p class="description">⑨の設定です。送信するのは製品識別名（コアは版）で、版の比較はこのサイト内で行います。再チェックを押すと最大8製品ずつ自動で続きを照合します。入力内容・アクセスログ・認証情報は送信しません。</p>
-        <h3>①② 認証設定の確認</h3>
-        <p>ログイン試行制限はLimit Login Attempts / Reloaded・Wordfence・ローカル連携、2段階認証はTwo-Factor・Wordfence Login Securityの設定を読み取ります。対応外・取得失敗を区別して表示します。認証設定をこの画面から自動変更することはありません。</p>
-        <p><a href="<?php echo esc_url(admin_url('plugins.php')); ?>">利用中の認証機能を確認</a> ／ <a href="<?php echo esc_url(admin_url('profile.php')); ?>">自分の認証設定を確認</a></p>
-        <h3>⑤ Cloudflareの読取り連携（任意）</h3>
-        <p><label>Zone ID <input type="text" name="cf_zone" maxlength="32" value="<?php echo esc_attr($options['cf_zone']); ?>" autocomplete="off"></label></p>
-        <p><label>APIトークン <input type="password" name="cf_token" value="" autocomplete="new-password" maxlength="256" placeholder="<?php echo $options['cf_secret'] ? '保存済み（空欄で保持）' : '未設定'; ?>"></label></p>
-        <p><label><input type="checkbox" name="clear_cf" value="1">保存したトークンを削除する</label></p>
-        <p class="description">対象ゾーンに限定したZone Read・Analytics Read・Zone WAF Readのトークンを使用してください。ゾーンのドメインがこのサイトに一致するか確認してから統計・ルールを取得します。設定変更や攻撃試験は行いません。</p>
-        <h3>⑧ サーバー情報の記録（管理者申告）</h3>
-        <p class="description">サーバー管理画面や提供元で確認した内容を記録できます。自動検証とは区別し、7日を超える申告は期限切れとして表示します。</p>
+        <input type="hidden" name="wphm_sc_thresholds_form" value="1">
+        <input type="hidden" name="vulnerabilities" value="<?php echo $options['vulnerabilities']?'1':'0'; ?>">
+        <p><a href="#wphm-sc-form">上部の共通取得元・接続設定へ戻る</a> ／ <a href="<?php echo esc_url(admin_url('plugins.php')); ?>">利用中の機能を確認</a></p>
+        <h3>サーバー情報のメモ（管理者申告）</h3>
+        <p class="description">提供元で確認した内容を記録できます。メモだけで自動検証を確認済みにはしません。7日を超える申告は期限切れとして表示します。</p>
         <?php foreach (['uploads_execution' => 'アップロード先でスクリプト実行を禁止している', 'vendor_patches' => 'PHP系列に対してホスティング提供元がセキュリティ修正を提供している'] as $key => $label): ?>
         <p><label><?php echo esc_html($label); ?><select name="<?php echo esc_attr($key); ?>"><?php foreach (['unknown'=>'未確認','yes'=>'はい（確認済み）','no'=>'いいえ（確認済み）'] as $value=>$text): ?><option value="<?php echo esc_attr($value); ?>" <?php selected($options[$key], $value); ?>><?php echo esc_html($text); ?></option><?php endforeach; ?></select></label></p>
         <?php endforeach; ?>
@@ -95,7 +145,7 @@ function wphm_sc_settings_html(): void {
         <?php foreach(['auth_failures'=>'認証失敗（件/分）','auth_focus'=>'共有枠の認証失敗（件/5分）','traffic_peak'=>'通信量（件/分）','http_errors'=>'HTTP 5xx（件/24時間）','error_percent'=>'100件以上ある場合の5xx率（％）'] as $key=>$label): $bound=wphm_sc_threshold_bounds()[$key]; ?>
         <p><label><?php echo esc_html($label); ?> <input type="number" name="<?php echo esc_attr($key); ?>" min="<?php echo (int)$bound[0]; ?>" max="<?php echo (int)$bound[1]; ?>" value="<?php echo (int)$options[$key]; ?>"></label></p>
         <?php endforeach; ?>
-        <p><button class="button" type="submit">設定を保存</button></p>
+        <p><button class="button" type="submit">観測基準・メモを保存</button></p>
     </form></details>
     <?php
 }

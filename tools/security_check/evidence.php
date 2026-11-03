@@ -3,7 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 function wphm_sc_evidence_html(array $facts): void {
     $telemetry=$facts['telemetry'] ?? []; $identity=$facts['identity'] ?? []; $files=$facts['files'] ?? []; $audit=$facts['audit'] ?? []; $vulns=$facts['vulnerabilities'] ?? []; $cf=$facts['cloudflare'] ?? []; $server=$facts['server'] ?? [];
-    echo '<details class="wphm-panel wphm-sc-details wphm-sc-evidence"><summary>観測範囲・権限・監査結果の詳細</summary>';
+    echo '<details class="wphm-panel wphm-sc-details wphm-sc-evidence"><summary>取得した情報・確認できなかった範囲</summary>';
     $lines=[];
     if (!empty($telemetry['available'])) {
         $lines[]='独立集計：開始 ' . ($telemetry['started'] ? wphm_format_timestamp($telemetry['started']) : '未確認') . '。観測された分数 ' . $telemetry['minutes'] . '分、最初 ' . ($telemetry['from'] ? wphm_format_timestamp($telemetry['from']) : '未計測') . '、最後 ' . ($telemetry['to'] ? wphm_format_timestamp($telemetry['to']) : '未計測') . '。';

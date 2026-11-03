@@ -25,6 +25,13 @@ function wphm_sc_mfa_for_user(WP_User $user): array {
             } else $out['error']=true;
         } catch(Throwable $error) { $out['error']=true; }
     }
+    try {
+        $custom=apply_filters('wphm_security_mfa_facts',[],$user);
+        if(is_array($custom) && ($custom['known'] ?? null)===true && is_bool($custom['enabled'] ?? null) && is_string($custom['name'] ?? null)) {
+            $out['known']=true; $out['enabled']=$out['enabled'] || $custom['enabled'];
+            $out['providers'][]=sanitize_text_field(substr($custom['name'],0,100));
+        }
+    } catch(Throwable $error) { $out['error']=true; }
     return $out;
 }
 

@@ -2,9 +2,10 @@
 if (!defined('ABSPATH')) exit;
 
 /** Read existing logs without loading, enabling, creating or changing the logging feature. */
-function wphm_sc_log_facts(): array {
+function wphm_sc_log_facts(bool $read=true): array {
     global $wpdb;
     $out = ['available' => false, 'enabled' => wphm_is_tool_enabled('access_log'), 'sampled' => 0, 'limited' => false, 'from' => 0, 'to' => 0, 'peak' => 0, 'errors' => 0, 'sql_paths' => 0, 'html_paths' => 0, 'traversal_paths' => 0];
+    if(!$read) return $out;
     $table = $wpdb->prefix . 'wphm_access_log';
     $previous = $wpdb->suppress_errors(true);
     try {
@@ -98,6 +99,11 @@ function wphm_sc_update_facts(array $inventory, bool $refresh): array {
     $saved = get_option('wphm_sc_update_metadata', []);
     $core = ['known' => false, 'status' => 'unknown', 'pending' => false, 'version' => $version, 'checked_at' => 0, 'source' => 'WordPressの保存済み更新情報'];
     $php = ['known' => false, 'secure' => null, 'version' => PHP_VERSION, 'checked_at'=>0, 'source'=>'WordPressの保存済みPHP情報（元の照会日時は未確認）'];
+    if(!wphm_sc_options()['updates']) {
+        $group=['known'=>false,'pending'=>0,'unknown'=>0,'total'=>0,'checked_at'=>0,'source'=>'公式更新照合は未選択'];
+        $core['source']=$group['source']; $php['source']=$group['source'];
+        return ['core'=>$core,'php'=>$php,'plugins'=>array_merge($group,['unknown'=>count($inventory['plugins']),'total'=>count($inventory['plugins'])]),'themes'=>array_merge($group,['unknown'=>count($inventory['themes']),'total'=>count($inventory['themes'])])];
+    }
     if ($refresh) {
         $map = wphm_sc_api('https://api.wordpress.org/core/stable-check/1.0/');
         if (is_array($map) && isset($map[$version]) && in_array($map[$version], ['latest', 'outdated', 'insecure'], true)) {
@@ -146,12 +152,13 @@ function wphm_sc_update_facts(array $inventory, bool $refresh): array {
 function wphm_sc_collect(bool $refresh = false, bool $continuing = false, array $context = []): array {
     global $wp_version;
     $GLOBALS['wphm_sc_deadline'] = microtime(true) + ($continuing ? 12 : 25);
+    $selection=wphm_sc_source_selection(); $options=wphm_sc_options();
     wphm_sc_telemetry_schema();
     $role = get_role((string)get_option('default_role', 'subscriber'));
     $file_edit_disabled = (defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT) || (defined('DISALLOW_FILE_MODS') && DISALLOW_FILE_MODS);
     $file_uploads = ini_get('file_uploads');
     $inventory = wphm_sc_inventory();
-    $fingerprint=hash('sha256',wp_json_encode([WPHM_VERSION,(string)$wp_version,PHP_VERSION,$inventory,get_option('active_plugins',[]),get_site_option('active_sitewide_plugins',[]),get_stylesheet(),get_option('wphm_sc_revision','')]));
+    $fingerprint=hash('sha256',wp_json_encode([WPHM_VERSION,(string)$wp_version,PHP_VERSION,$inventory,get_option('active_plugins',[]),get_site_option('active_sitewide_plugins',[]),get_stylesheet(),get_option('wphm_sc_revision',''),$selection,$options['updates'],$options['vulnerabilities']]));
     if($continuing && (!is_string($context['fingerprint'] ?? null) || !hash_equals($context['fingerprint'],$fingerprint))) throw new WPHM_Security_Check_Exception('照合中に製品・設定が変更されました。再チェックしてください。');
     $facts = [
         'registration' => !is_multisite() && (bool)get_option('users_can_register', false),
@@ -162,17 +169,18 @@ function wphm_sc_collect(bool $refresh = false, bool $continuing = false, array 
         'file_edit_allowed' => !$file_edit_disabled && (current_user_can('edit_plugins') || current_user_can('edit_themes')),
         'file_uploads' => $file_uploads === false ? null : filter_var($file_uploads, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
         'https' => wp_parse_url(home_url('/'), PHP_URL_SCHEME) === 'https' && wp_parse_url(site_url('/'), PHP_URL_SCHEME) === 'https',
-        'logs' => wphm_sc_log_facts(),
+        'logs' => wphm_sc_log_facts($selection['wordpress']),
         'updates' => wphm_sc_update_facts($inventory, $refresh && !$continuing),
-        'telemetry' => wphm_sc_telemetry_facts(),
-        'identity' => wphm_sc_identity_facts(),
-        'files' => wphm_sc_file_facts($inventory),
-        'audit' => wphm_sc_audit_facts(),
-        'cloudflare' => wphm_sc_cloudflare($refresh && !$continuing),
+        'telemetry' => wphm_sc_telemetry_facts($selection['wordpress']),
+        'identity' => wphm_sc_identity_facts($selection['wordpress']),
+        'files' => wphm_sc_file_facts($inventory,$selection['wordpress']),
+        'audit' => $selection['wordpress']?wphm_sc_audit_facts():['known'=>false,'files'=>0,'changed'=>0,'version'=>'','groups'=>[]],
+        'cloudflare' => $selection['edge'] && $options['edge_provider']==='cloudflare'?wphm_sc_cloudflare($refresh && !$continuing):['configured'=>false,'known'=>false,'checked_at'=>0,'requests'=>null,'waf_rules'=>null,'blocked'=>null,'events'=>null,'state'=>'今回未調査'],
         'vulnerabilities' => wphm_sc_vulnerabilities($inventory, $refresh, is_string($context['id'] ?? null)?$context['id']:''),
     ];
     $options = wphm_sc_options();
     $facts['server'] = array_intersect_key($options, array_flip(['uploads_execution','vendor_patches','evidence','attested_at']));
+    $facts['acquisition']=wphm_sc_acquisition_facts($facts,$refresh && !$continuing);
     $facts['inventory'] = [];
     foreach (['plugins','themes','mu_plugins','dropins'] as $group) $facts['inventory'][$group] = array_values(array_map(function ($item) { return ['name'=>$item['Name'],'version'=>$item['Version']]; }, $inventory[$group]));
     return ['schema'=>2,'fingerprint'=>$fingerprint,'checked_at' => time(), 'refreshed' => $refresh, 'facts' => $facts, 'items' => wphm_sc_assess($facts)];

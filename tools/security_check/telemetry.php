@@ -141,11 +141,11 @@ function wphm_sc_login_success($username): void { wphm_sc_auth_event(is_string($
 function wphm_sc_application_success($user): void { if ($user instanceof WP_User) wphm_sc_auth_event($user->user_login, true); }
 function wphm_sc_application_failed($error): void { wphm_sc_auth_event('', false); }
 
-function wphm_sc_telemetry_facts(): array {
+function wphm_sc_telemetry_facts(bool $read=true): array {
     global $wpdb;
     $out = ['available' => false, 'started' => (int)get_option('wphm_sc_counts_started', 0), 'minutes' => 0, 'from' => 0, 'to' => 0, 'peak' => 0, 'auth_peak' => 0, 'focused_failures' => 0, 'saturated' => false, 'recent_requests'=>0, 'baseline_requests'=>0, 'baseline_minutes'=>0];
     foreach (['requests','failures','successes','after_failure','sql_hits','xss_hits','traversal_hits','errors','truncated'] as $field) $out[$field] = 0;
-    if (get_option('wphm_sc_counts_schema') !== '1') return $out;
+    if (!$read || get_option('wphm_sc_counts_schema') !== '1') return $out;
     $now = intdiv(time(), 60); $previous = $wpdb->suppress_errors(true);
     try {
         $rows = $wpdb->get_results($wpdb->prepare('SELECT * FROM ' . wphm_sc_telemetry_table() . ' WHERE slot<1440 AND epoch>%d AND epoch<=%d ORDER BY epoch LIMIT 1440', $now - 1440, $now), ARRAY_A);

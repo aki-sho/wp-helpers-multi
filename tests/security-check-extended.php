@@ -32,6 +32,8 @@ $before=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$counts_table}");
 wphm_sc_counter(9999,intdiv(time(),60),['requests'=>1]);
 sc_same($before,(int)$wpdb->get_var("SELECT COUNT(*) FROM {$counts_table}"),'invalid ring slots rejected');
 $epoch=intdiv(time(),60); $slot=$epoch%1440;
+$wpdb->query("TRUNCATE TABLE {$counts_table}");
+wphm_sc_counter($slot,$epoch,['requests'=>1]);
 $wpdb->query($wpdb->prepare("UPDATE {$counts_table} SET requests=60000 WHERE slot=%d",$slot));
 wphm_sc_counter($slot,$epoch,['requests'=>1]);
 sc_same(60000,(int)$wpdb->get_var($wpdb->prepare("SELECT requests FROM {$counts_table} WHERE slot=%d",$slot)),'counter saturation is bounded');
@@ -44,7 +46,7 @@ sc_same('medium',$new_items['brute_force']['level'],'observed concentration prod
 if($observed['after_failure']>0) sc_same('medium',$new_items['credential_stuffing']['level'],'post-failure success is attention, not claimed breach');
 $base_facts['telemetry']['peak']=601;
 sc_same('medium',array_column(wphm_sc_assess($base_facts),'level','id')['ddos'],'high application volume is attention, not confirmed DDoS');
-$base_facts['identity']['limiter']=['name'=>'fixture limiter','tries'=>4,'seconds'=>1200];
+sc_limiter_evidence($base_facts,['name'=>'fixture limiter','tries'=>4,'seconds'=>1200]);
 $base_facts['telemetry']['auth_peak']=0; $base_facts['telemetry']['focused_failures']=0;
 sc_same('low',array_column(wphm_sc_assess($base_facts),'level','id')['brute_force'],'known limiter setting has explicitly limited low scope');
 
@@ -114,7 +116,7 @@ sc_same(1,count($calls)-$before,'wrong zone stops further analytics requests');
 $cf_mode='failure'; sc_same(false,wphm_sc_cloudflare(true)['known'],'API failure is unknown, not cached successful result');
 $cf_mode='valid'; wphm_sc_cloudflare(true);
 foreach($calls as $call) if(wp_parse_url($call['url'],PHP_URL_HOST)!=='api.cloudflare.com') sc_same(false,isset($call['args']['headers']['Authorization']),'Cloudflare credential never sent to another host');
-ob_start(); wphm_sc_settings_html(); $settings_html=ob_get_clean();
+ob_start(); wphm_sc_acquisition_fields_html(); $settings_html=ob_get_clean();
 sc_same(false,strpos($settings_html,$token)!==false,'saved token not rendered into form');
 sc_same(true,strpos($settings_html,'保存済み')!==false,'blank credential field explains retention');
 wphm_sc_save_options(['vulnerabilities'=>1,'cf_zone'=>'','clear_cf'=>1]);

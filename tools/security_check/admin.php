@@ -11,6 +11,8 @@ function wphm_sc_report(bool $refresh = false, string $operation = 'recheck', st
     $key = 'wphm_security_check_' . WPHM_VERSION . '_' . get_current_user_id();
     $revision = get_option('wphm_sc_revision', '');
     if (is_string($revision) && $revision !== '') $key .= '_' . substr(hash('sha256',$revision),0,16);
+    $preferences=wphm_sc_options();
+    $key.='_'.substr(hash('sha256',wp_json_encode([wphm_sc_source_selection(),$preferences['updates'],$preferences['vulnerabilities']])),0,12);
     if (!$refresh) {
         $cached = get_transient($key);
         if (is_array($cached) && ($cached['schema'] ?? 0)===2 && isset($cached['checked_at'], $cached['items'], $cached['facts']) && is_int($cached['checked_at']) && $cached['checked_at'] >= time()-5*MINUTE_IN_SECONDS && $cached['checked_at'] <= time()) return $cached;
@@ -80,7 +82,13 @@ function wphm_sc_handle_request(): void {
     $operation=$_POST['wphm_sc_action'] ?? '';
     if (!is_string($operation) || !in_array($operation,['recheck','continue'],true)) wp_die('操作が不正です。', '', ['response' => 400]);
     $run=isset($_POST['run']) && is_string($_POST['run']) ? $_POST['run'] : '';
-    try { $GLOBALS['wphm_sc_page_report'] = wphm_sc_report(true,$operation,$run); }
+    try {
+        if($operation==='recheck' && isset($_POST['wphm_sc_sources_form'])) {
+            if($_POST['wphm_sc_sources_form']!=='1') throw new WPHM_Security_Check_Exception('取得元フォームの形式が不正です。');
+            wphm_sc_save_sources($_POST);
+        }
+        $GLOBALS['wphm_sc_page_report'] = wphm_sc_report(true,$operation,$run);
+    }
     catch (Throwable $exception) { $GLOBALS['wphm_sc_page_error'] = wphm_sc_failure_message($exception); }
 }
 
@@ -94,13 +102,18 @@ function wphm_sc_ajax(): void {
     $run=isset($_POST['run']) && is_string($_POST['run']) ? $_POST['run'] : '';
     $buffer_level=ob_get_level();
     try {
+        if($operation==='recheck' && isset($_POST['wphm_sc_sources_form'])) {
+            if($_POST['wphm_sc_sources_form']!=='1') throw new WPHM_Security_Check_Exception('取得元フォームの形式が不正です。');
+            wphm_sc_save_sources($_POST);
+        }
         $report = wphm_sc_report(true,$operation,$run);
         ob_start(); wphm_sc_report_html($report); $html = ob_get_clean();
     } catch (Throwable $exception) {
         while(ob_get_level()>$buffer_level) ob_end_clean();
         wp_send_json_error(['message' => wphm_sc_failure_message($exception)], $exception instanceof WPHM_Security_Check_Exception ? 409 : 500);
     }
-    wp_send_json_success(['html' => $html,'scan'=>$report['scan']]);
+    $options=wphm_sc_options();
+    wp_send_json_success(['html' => $html,'scan'=>$report['scan'],'connections'=>['cf'=>$options['cf_secret']!=='','server'=>$options['server_secret']!=='','edge'=>$options['edge_secret']!=='']]);
 }
 
 function wphm_sc_assets(): void {
@@ -119,6 +132,7 @@ function wphm_sc_report_html(array $report): void {
         <p><strong>確認日時：</strong><time datetime="<?php echo esc_attr(wp_date('c', $report['checked_at'])); ?>"><?php echo esc_html(wphm_format_timestamp($report['checked_at'])); ?></time></p>
         <p><?php echo $report['refreshed'] ? '設定・集計を読み直し、設定された外部照会を実行しました。製品ごとの取得日時と未確認範囲は詳細に表示します。' : '保存済みの照会根拠と現在の設定・集計を参照しています。「再チェック」で外部情報を更新します。'; ?></p>
     </div>
+    <p class="description wphm-sc-risk-help">棒は達成率ではなく、確認項目から判定したリスクです。低は確認できた対象の範囲の評価です。未確認を安全とは扱いません。（）は設定・記録の場所、未取得は「確認先」、補助情報は「参考」と表示します。</p>
     <?php if(!empty($scan['pending'])): ?>
     <div class="wphm-sc-scan" data-run="<?php echo esc_attr($scan['run'] ?? ''); ?>" role="status">
         <span>既知脆弱性：未照合 <?php echo (int)$scan['pending']; ?>製品。<?php echo !empty($scan['stopped']) ? '処理上限に達しました。再チェックで保存済みの続きから照合できます。' : 'この画面の自動照合で続きを確認します。画面を閉じると続行を停止します。'; ?></span>
@@ -133,23 +147,22 @@ function wphm_sc_report_html(array $report): void {
     <ol class="wphm-sc-results" aria-label="10種類の攻撃に関するチェック結果">
     <?php foreach ($report['items'] as $index => $item): $level = $item['level']; $size = ['low' => 33.333, 'medium' => 66.667, 'high' => 100, 'unknown' => 100][$level]; ?>
         <li class="wphm-sc-item wphm-sc-<?php echo esc_attr($level); ?>" data-check="<?php echo esc_attr($item['id']); ?>">
-            <div class="wphm-sc-item-title"><h2><span class="wphm-sc-number"><?php echo (int)$index + 1; ?></span><?php echo esc_html($item['name']); ?></h2><span class="wphm-sc-badge"><?php echo esc_html($levels[$level]); ?></span></div>
+            <details class="wphm-sc-accordion"><summary><div class="wphm-sc-item-title"><h2><span class="wphm-sc-number"><?php echo (int)$index + 1; ?></span><?php echo esc_html($item['name']); ?></h2></div>
             <div class="wphm-sc-bar" <?php if ($level !== 'unknown'): ?>role="meter" aria-label="<?php echo esc_attr($item['name'] . 'の確認範囲でのリスク'); ?>" aria-valuemin="1" aria-valuemax="3" aria-valuenow="<?php echo ['low' => 1, 'medium' => 2, 'high' => 3][$level]; ?>" aria-valuetext="<?php echo esc_attr($levels[$level]); ?>"<?php else: ?>role="img" aria-label="リスク未確認"<?php endif; ?>><span style="width:<?php echo esc_attr((string)$size); ?>%"><small><?php echo esc_html($levels[$level]); ?></small></span></div>
-            <p class="wphm-sc-scope">確認範囲：<?php echo esc_html($item['scope']); ?></p>
-            <p><strong>現在の状態</strong><span><?php echo esc_html($item['state']); ?></span></p>
-            <p><strong>判定理由</strong><span><?php echo esc_html($item['reason']); ?></span></p>
-            <?php if(!empty($item['checks'])): $check_counts=array_fill_keys(array_keys($labels),0); foreach($item['checks'] as $check) $check_counts[$check['status']]++; $total=count($item['checks']); $description=[]; foreach($check_counts as $key=>$count) if($count) $description[]=$labels[$key].' '.$count.'項目'; ?>
-            <div class="wphm-sc-check-summary"><b><?php echo esc_html($item['result_status']); ?></b><span><?php echo esc_html(implode(' ／ ',$description)); ?></span></div>
-            <div class="wphm-sc-coverage" role="img" aria-label="<?php echo esc_attr('確認項目の内訳：'.implode('、',$description)); ?>"><?php foreach($check_counts as $key=>$count) if($count): ?><span class="wphm-sc-check-<?php echo esc_attr($key); ?>" style="width:<?php echo esc_attr((string)(100*$count/$total)); ?>%"></span><?php endif; ?></div>
-            <ul class="wphm-sc-checks"><?php foreach($item['checks'] as $check): ?><li><div><strong><?php echo esc_html($check['label']); ?></strong><span class="wphm-sc-check-badge wphm-sc-check-<?php echo esc_attr($check['status']); ?>"><?php echo esc_html($labels[$check['status']]); ?></span></div><span><?php echo esc_html($check['value']); ?></span><?php if($check['help']!==''): ?><small><?php echo esc_html($check['help']); ?></small><?php endif; ?></li><?php endforeach; ?></ul>
+            </summary><div class="wphm-sc-item-body">
+            <?php wphm_sc_item_sources_html($item); ?>
+            <?php if(!empty($item['checks'])): ?>
+            <h3>確認項目</h3>
+            <ul class="wphm-sc-checks"><?php foreach($item['checks'] as $check): $places=[]; foreach($check['sources'] ?? ['wordpress'] as $source) if(isset(wphm_sc_source_names()[$source])) $places[]=wphm_sc_source_names()[$source]; $origin=(empty($check['source_confirmed'])?'確認先：':'').implode('・',$places).(!empty($check['reference'])?'／参考':''); ?><li><div><strong><?php echo esc_html($check['label']); ?><span class="wphm-sc-origin">（<?php echo esc_html($origin); ?>）</span></strong><span class="wphm-sc-check-badge wphm-sc-check-<?php echo esc_attr($check['status']); ?>"><?php echo esc_html($labels[$check['status']] ?? '未確認'); ?></span></div><span><?php echo esc_html($check['value']); ?></span><?php if($check['help']!==''): ?><small><?php echo esc_html($check['help']); ?></small><?php endif; ?></li><?php endforeach; ?></ul>
             <a class="wphm-sc-settings-link" href="#wphm-sc-settings">この項目の設定・確認方法を見る</a>
             <?php endif; ?>
+            </div></details>
         </li>
     <?php endforeach; ?>
     </ol>
     <?php wphm_sc_evidence_html($facts); ?>
     <details class="wphm-sc-details wphm-panel"><summary>参照した情報と判定の範囲</summary>
-        <p>横棒は各項目に書いた確認範囲のリスクです。低は確認した設定・通信・対象製品の照合範囲だけを表します。未確認も灰色の棒と理由を表示します。その下の細い棒は確認項目の内訳で、リスクや安全性の点数ではありません。他プラグイン・テーマを含むサイト全体の耐性や侵害の有無は別に確認が必要です。</p>
+        <p>横棒は確認項目から判定したリスクです。要対応は高、要確認は中、判定に必要な情報が不足していれば未確認とします。参考情報はアプリ側の欠陥や未確認を打ち消しません。低は確認した対象だけの評価で、サイト全体の安全や侵害がないことを保証しません。</p>
         <p>ログは直近24時間の最新2,000件までを参照します。<?php echo $facts['logs']['limited'] ? '参照上限に達しています。' : ''; ?><?php echo $facts['logs']['enabled'] ? '' : 'アクセスログ機能は無効です。残っている過去の記録だけを参照します。'; ?>記録されない通信もあるため、記録が少ない・該当文字列がないだけで「低」とは判定しません。</p>
         <?php foreach (['core' => 'コア', 'plugins' => 'プラグイン', 'themes' => 'テーマ'] as $key => $name): $group = $updates[$key]; ?>
         <p><?php echo esc_html($name . '：' . $group['source'] . '。' . ($group['checked_at'] ? '情報の参照日時 ' . wphm_format_timestamp($group['checked_at']) : '情報を確認できませんでした') . ($key === 'core' ? '' : '。更新情報が未確認のもの ' . $group['unknown'] . '/' . $group['total'] . '件')); ?></p>
@@ -168,17 +181,20 @@ function wphm_sc_render(): void {
     wphm_render_header('セキュリティチェック');
     ?>
     <section class="wphm-panel wphm-sc-intro">
-        <h2>設定と記録から、確認できることを整理</h2>
-        <p>WordPressの設定・更新情報・既存アクセスログから10種類の攻撃に関する状態を確認します。判定は各項目に示した確認範囲に限り、判断材料が足りない項目は「未確認」と表示します。</p>
+        <h2>調べる場所を選ぶ</h2>
+        <p>1〜10で共通の取得元です。既存の設定・記録を読み取り、判断材料が足りない項目は「未確認」と表示します。防御設定そのものを変更する操作ではありません。</p>
         <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=wphm-security-check')); ?>" id="wphm-sc-form">
             <?php wp_nonce_field('wphm_security_check', 'nonce'); ?>
             <input type="hidden" name="wphm_sc_action" value="recheck">
+            <?php wphm_sc_acquisition_fields_html(); ?>
+            <div class="wphm-sc-run-row">
             <button type="submit" class="button button-primary wphm-primary-button" id="wphm-sc-recheck"><span class="dashicons dashicons-update" aria-hidden="true"></span>再チェック</button>
             <button type="button" class="button" id="wphm-sc-pause" hidden>自動照合を一時停止</button>
             <button type="button" class="button" id="wphm-sc-resume" hidden>照合を続ける</button>
             <span id="wphm-sc-status" role="status" aria-live="polite"></span>
+            </div>
         </form>
-        <p class="description">再チェックを一度押すと、設定・公式更新情報と既知脆弱性を確認し、残りを最大8製品ずつ自動照合します。初回の外部照会枠は25秒、続行は各12秒、全体で最長10分・最大500製品です。再チェックは20秒間隔です。WordPress.orgへ版・名称等、WPVulnerabilityへ製品識別名を照会します。Cloudflareは設定時のみ読取り照会します。</p>
+        <p class="description">選択・入力後は「再チェック」で保存と取得を行います。別の保存・接続テストは不要です。選択した公開照合は最大8製品ずつ、最長10分・最大500製品で停止します。再チェックは20秒間隔です。途中の取得失敗は各項目で確認できます。</p>
         <p class="description">この機能を有効にして管理者が画面を開くと、以後のWordPress到達通信・認証イベントを上限付きで集計します。入力全文・パスワード・IP・利用者名は保存しません。無効にすると集計も停止します。</p>
     </section>
     <p id="wphm-sc-error" role="alert"><?php echo esc_html($GLOBALS['wphm_sc_page_error'] ?? ''); ?></p>
