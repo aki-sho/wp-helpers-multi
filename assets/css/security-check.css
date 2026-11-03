@@ -73,6 +73,8 @@
 .wphm-security-check .wphm-sc-connection>summary{padding:10px 12px;cursor:pointer}
 .wphm-security-check .wphm-sc-connection-body{padding:0 12px 12px}
 .wphm-security-check .wphm-sc-connection-body label{display:block;margin-top:10px}
+.wphm-security-check .wphm-sc-connection-body fieldset{min-width:0;min-inline-size:0;margin:12px 0;padding:10px;border:1px solid var(--wphm-line,#ddd8cc);border-radius:8px}
+.wphm-security-check .wphm-sc-connection-body legend{max-width:100%;overflow-wrap:anywhere}
 .wphm-security-check .wphm-sc-connection-body input[type=text],.wphm-security-check .wphm-sc-connection-body input[type=password],.wphm-security-check .wphm-sc-connection-body select{display:block;max-width:100%;width:360px;margin-top:5px}
 .wphm-security-check .wphm-sc-reference-options{border-top:1px solid var(--wphm-line,#ddd8cc);padding-top:12px;margin-top:14px}
 .wphm-security-check .wphm-sc-reference-options>strong{display:block}

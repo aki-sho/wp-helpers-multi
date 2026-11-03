@@ -109,7 +109,7 @@ function wphm_access_log_repo_delete_ids(array $ids): int {
     global $wpdb;
     $table = wphm_access_log_table_name();
 
-    $ids = array_values(array_filter(array_map('intval', $ids), fn($v) => $v > 0));
+    $ids = wphm_positive_ids($ids);
     if (!$ids) return 0;
 
     $placeholders = implode(',', array_fill(0, count($ids), '%d'));

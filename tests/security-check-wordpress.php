@@ -240,6 +240,7 @@ try {
         sc_same('', $wpdb->last_error, 'no database errors');
         require __DIR__ . '/security-check-extended.php';
         require __DIR__ . '/security-check-acquisition.php';
+        require __DIR__ . '/security-check-followups.php';
         echo "PASS: {$checks} native WordPress security-check assertions.\n";
     }
     }

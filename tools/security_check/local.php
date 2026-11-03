@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-function wphm_sc_identity_facts(bool $enabled=true): array {
+function wphm_sc_identity_facts(bool $enabled=true, string $operation='fresh'): array {
     $out = ['checked'=>0,'limited'=>false,'html_users'=>0,'raw_upload_users'=>0,'code_users'=>0,'admins'=>0,'mfa_known'=>0,'mfa_enabled'=>0,'mfa_providers'=>[],'mfa_error'=>false,'app_password_users'=>0,'roles'=>[],'limiter'=>null,'limiters'=>[],'limiter_error'=>false,'xmlrpc_auth'=>false,'application_passwords'=>null];
     if(!$enabled) return $out;
     $roles = wp_roles()->roles;
@@ -11,22 +11,7 @@ function wphm_sc_identity_facts(bool $enabled=true): array {
         foreach (['unfiltered_html','unfiltered_upload','install_plugins','edit_plugins','edit_themes'] as $cap) if (!empty($caps[$cap])) $flags[]=$cap;
         if ($flags) $out['roles'][]=['name'=>substr((string)$slug,0,100),'capabilities'=>$flags];
     }
-    $users = get_users(['number'=>201,'orderby'=>'ID','order'=>'ASC','fields'=>'all_with_meta']);
-    $out['limited']=count($users)>200; $users=array_slice($users,0,200);
-    foreach ($users as $user) {
-        $out['checked']++;
-        if (user_can($user,'manage_options')) $out['admins']++;
-        if (user_can($user,'unfiltered_html') && (user_can($user,'edit_posts') || user_can($user,'edit_pages'))) $out['html_users']++;
-        if (user_can($user,'unfiltered_upload') && user_can($user,'upload_files')) $out['raw_upload_users']++;
-        if (user_can($user,'edit_plugins') || user_can($user,'edit_themes') || user_can($user,'install_plugins') || user_can($user,'install_themes')) $out['code_users']++;
-        if (function_exists('wp_is_application_passwords_available_for_user') && wp_is_application_passwords_available_for_user($user) && class_exists('WP_Application_Passwords') && WP_Application_Passwords::get_user_application_passwords($user->ID)) $out['app_password_users']++;
-        if (user_can($user,'manage_options')) {
-            $mfa=wphm_sc_mfa_for_user($user);
-            if ($mfa['error']) $out['mfa_error']=true;
-            if ($mfa['known']) { $out['mfa_known']++; if($mfa['enabled']) $out['mfa_enabled']++; }
-            foreach ($mfa['providers'] as $name) if(!in_array($name,$out['mfa_providers'],true)) $out['mfa_providers'][]=$name;
-        }
-    }
+    $out=array_replace($out,wphm_sc_scan_users($operation));
     global $wp_filter;
     if (isset($wp_filter['wp_authenticate_user']->callbacks)) foreach ($wp_filter['wp_authenticate_user']->callbacks as $callbacks) foreach ($callbacks as $callback) {
         $function = $callback['function'] ?? null;

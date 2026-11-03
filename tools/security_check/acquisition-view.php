@@ -18,16 +18,17 @@ function wphm_sc_acquisition_fields_html(): void {
         $choices=$source==='server'?['local'=>'ローカルPHP情報（追加接続不要）']:['cloudflare'=>'Cloudflare'];
         foreach($readers as $id=>$reader) if($reader['source']===$source) $choices[$id]=$reader['name'];
         if(!isset($choices[$options[$source.'_provider']])) $choices[$options[$source.'_provider']]='以前の連携（現在は未登録）';
-        foreach($choices as $value=>$label) echo '<option value="'.esc_attr($value).'" '.selected($options[$source.'_provider'],$value,false).'>'.esc_html($label).'</option>';
+        foreach($choices as $value=>$label) echo '<option value="'.esc_attr($value).'" data-reader-help="'.esc_attr($readers[$value]['help'] ?? '').'" '.selected($options[$source.'_provider'],$value,false).'>'.esc_html($label).'</option>';
         echo '</select></label>';
         if($source==='edge') {
             echo '<div data-sc-provider-fields="cloudflare"><label>Cloudflare Zone ID<input type="text" name="cf_zone" maxlength="32" autocomplete="off" value="'.esc_attr($options['cf_zone']).'"></label><label>Cloudflare 読取りトークン<input type="password" name="cf_token" value="" maxlength="256" autocomplete="new-password" placeholder="'.($options['cf_secret']!==''?'保存済み（空欄で保持）':'未設定').'"></label><label><input type="checkbox" name="clear_cf" value="1">保存したCloudflareトークンを削除する</label><p class="description">対象ゾーンのZone Read・Analytics Read・Zone WAF Readを使用します。ドメインの一致を確認し、取得できた統計・WAF・ログイン回数制限を別々に表示します。設定変更は行いません。</p></div>';
         }
-        echo '<div data-sc-reader-fields="'.esc_attr($source).'"><label>登録済み連携の接続ID<input type="text" name="'.esc_attr($source).'_connection" value="'.esc_attr($options[$source.'_connection']).'" maxlength="128" autocomplete="off"></label><label>読取りキー<input type="password" name="'.esc_attr($source).'_token" value="" maxlength="512" autocomplete="new-password" placeholder="'.($options[$source.'_secret']!==''?'保存済み（空欄で保持）':'未設定').'"></label><label><input type="checkbox" name="clear_'.esc_attr($source).'" value="1">保存した連携キーを削除する</label></div>';
-        echo '<p class="description">'.($source==='server'?'ローカルで確認できるPHP情報と、ホスティング側の非公開設定は区別します。非公開設定には提供元に対応する読取り連携の登録が必要です。':'Cloudflare以外は、利用中サービスに対応する読取り連携の登録が必要です。').'URLやファイルパスを入力して取得する機能ではありません。未登録・権限不足・未取得は「未確認」と表示します。</p></div></details>';
+        echo '<div data-sc-reader-fields="'.esc_attr($source).'"><p data-sc-reader-help="'.esc_attr($source).'">'.esc_html($readers[$options[$source.'_provider']]['help'] ?? '').'</p><label>連携の接続ID<input type="text" name="'.esc_attr($source).'_connection" value="'.esc_attr($options[$source.'_connection']).'" maxlength="128" autocomplete="off"></label><label>読取りキー<input type="password" name="'.esc_attr($source).'_token" value="" maxlength="512" autocomplete="new-password" placeholder="'.($options[$source.'_secret']!==''?'保存済み（空欄で保持）':'未設定').'"></label><label><input type="checkbox" name="clear_'.esc_attr($source).'" value="1">保存した連携キーを削除する</label><p>サービスまたは接続IDを変更した場合はキーの再入力が必要です。キーはこのサイト内で暗号化して保存し、選択した連携先の読取りAPIだけに使用します。</p></div>';
+        echo '<p class="description">標準対応サービスは取得方法から選べます。その他のサービスには対応する読取り連携の登録が必要です。全ホスティングの非公開設定を一律に取得する機能ではありません。任意URL・ファイルパスは指定せず、未対応・権限不足・未取得は未確認と表示します。</p></div></details>';
     }
     echo '<div class="wphm-sc-reference-options"><strong>公開情報との照合</strong>';
     foreach(['updates'=>'公式の更新情報と照合する','vulnerabilities'=>'既知脆弱性の公開情報と照合する'] as $key=>$label) echo '<label><input type="checkbox" name="source_'.esc_attr($key).'" value="1" '.checked($options[$key],true,false).'>'.esc_html($label).'</label>';
+    wphm_sc_vendor_fields_html();
     echo '<p class="description">WordPress.org・WPVulnerabilityへの製品名・版等の照会です。外部の防御サービスとは別です。WordPress内の調査を外しても、照合に必要な製品構成は取得します。接続情報や認証記録は送信しません。チェックや設定欄の開閉だけでは通信しません。</p></div>';
 }
 

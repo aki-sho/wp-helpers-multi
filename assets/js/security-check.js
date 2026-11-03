@@ -40,7 +40,8 @@
         throw new Error(result && result.data && typeof result.data.message === 'string' ? result.data.message : 'チェック結果を取得できませんでした。');
       }
       const scan = result.data.scan;
-      if (!scan || !Number.isInteger(scan.pending) || scan.pending < 0 || scan.pending > 500 || typeof scan.auto !== 'boolean' || typeof scan.stopped !== 'boolean' || (scan.run !== '' && !validRun(scan.run)) || (scan.auto && (!scan.pending || !validRun(scan.run) || scan.stopped))) throw new Error('照合の進行情報を確認できませんでした。再チェックしてください。');
+      const usersPending = scan && scan.users_pending === true;
+      if (!scan || !Number.isInteger(scan.pending) || scan.pending < 0 || scan.pending > 500 || (scan.users_pending !== undefined && typeof scan.users_pending !== 'boolean') || typeof scan.auto !== 'boolean' || typeof scan.stopped !== 'boolean' || (scan.run !== '' && !validRun(scan.run)) || (scan.auto && ((!scan.pending && !usersPending) || !validRun(scan.run) || scan.stopped))) throw new Error('照合の進行情報を確認できませんでした。再チェックしてください。');
       if (!alive || sequence !== generation) return;
       // The capability/nonce protected endpoint escapes all displayed facts.
       const opened = Array.from(report.querySelectorAll('[data-check]')).filter(node => node.querySelector('details')?.open).map(node => node.dataset.check);
@@ -58,13 +59,13 @@
       }
       run = scan.auto ? scan.run : '';
       if (run && !paused) {
-        status.textContent = `未照合 ${scan.pending}製品。自動で続きを確認します…`;
+        status.textContent = `未照合 ${scan.pending}製品。${usersPending ? '利用者の確認も分割して続けます。' : ''}自動で続きを確認します…`;
         schedule();
       } else if (run) {
         status.textContent = '自動照合を一時停止しました。「照合を続ける」で再開できます。';
       } else {
         paused = true;
-        status.textContent = scan.stopped ? `処理上限で停止しました。未照合 ${scan.pending}製品。再チェックで続行できます。` : '再チェックが完了しました。取得失敗・確認範囲外の項目は結果内で確認してください。';
+        status.textContent = scan.stopped ? `処理上限で停止しました。未照合 ${scan.pending}製品。${usersPending ? '利用者の残りもあります。' : ''}再チェックで続行できます。` : '再チェックが完了しました。取得失敗・確認範囲外の項目は結果内で確認してください。';
       }
     } catch (failure) {
       if (!alive || sequence !== generation) return;
@@ -107,6 +108,8 @@
       if (checkbox && panel) panel.hidden = !checkbox.checked;
       const generic = form.querySelector(`[data-sc-reader-fields="${source}"]`);
       if (generic && picker) generic.hidden = ['local', 'cloudflare'].includes(picker.value);
+      const help = form.querySelector(`[data-sc-reader-help="${source}"]`);
+      if (help && picker) help.textContent = picker.selectedOptions[0]?.dataset.readerHelp || '';
       if (source === 'edge') { const cf = form.querySelector('[data-sc-provider-fields="cloudflare"]'); if (cf && picker) cf.hidden = picker.value !== 'cloudflare'; }
     }
   }

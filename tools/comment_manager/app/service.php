@@ -135,6 +135,7 @@ function wphm_comment_manager_excerpt(string $text, int $length = 80): string {
 }
 
 function wphm_comment_manager_apply_bulk_action(string $action, array $ids, int $duration = 86400): int {
+    $ids=wphm_positive_ids($ids);
     $done = 0;
 
     foreach ($ids as $id) {

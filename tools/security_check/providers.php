@@ -40,9 +40,9 @@ function wphm_sc_wordfence_limiter(?bool &$failed=null): ?array {
     if(!is_callable(['wfConfig','get']) || has_filter('authenticate','wordfence::authenticateFilter')===false) return null;
     try {
         if(!\wfConfig::get('loginSecurityEnabled')) return null;
-        $tries=\wfConfig::get('loginSec_maxFailures');
-        $minutes=\wfConfig::get('loginSec_lockoutMins');
-        if(is_numeric($tries) && is_numeric($minutes) && $tries>=1 && $tries<=100 && $minutes>=1 && $minutes<=1440) return ['name'=>'Wordfence','tries'=>(int)$tries,'seconds'=>(int)$minutes*60];
+        $tries=wphm_sc_setting_integer(\wfConfig::get('loginSec_maxFailures'),1,100);
+        $minutes=wphm_sc_setting_integer(\wfConfig::get('loginSec_lockoutMins'),1,1440);
+        if($tries!==null && $minutes!==null) return ['name'=>'Wordfence','tries'=>$tries,'seconds'=>$minutes*60];
         $failed=true;
     } catch(Throwable $error) { $failed=true; return null; }
     return null;

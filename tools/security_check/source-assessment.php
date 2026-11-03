@@ -10,6 +10,20 @@ function wphm_sc_checks_level(array $checks): string {
     return 'low';
 }
 
+/** Zero registered API credentials cannot prove that other authentication routes are protected. */
+function wphm_sc_alternate_auth_status(array $identity, array $discovery): string {
+    if(($identity['app_password_users'] ?? 0)>0) return 'attention';
+    if(!empty($identity['limited']) || !empty($discovery['limited']) || !empty($discovery['unknown'])) return 'pending';
+    if(($identity['xmlrpc_auth'] ?? null)!==false || ($identity['application_passwords'] ?? null)!==false) return 'pending';
+    return 'ok';
+}
+
+function wphm_sc_limiter_meets_policy(array $limit, array $policy): bool {
+    return !empty($limit['enabled']) && !empty($limit['applied']) && in_array('wp_login',$limit['routes'] ?? [],true)
+        && isset($limit['tries'],$limit['period'],$limit['seconds'])
+        && $limit['tries']<=$policy['login_max_tries'] && $limit['period']>=$policy['login_min_period'] && $limit['seconds']>=$policy['login_min_lockout'];
+}
+
 /** Rendered check rows and risk always use the same, source-specific facts. */
 function wphm_sc_source_assessment(array $facts, array $items): array {
     $acquisition=$facts['acquisition']; $selected=$acquisition['selected']; $sources=$acquisition['sources'];
@@ -35,10 +49,11 @@ function wphm_sc_source_assessment(array $facts, array $items): array {
     }
     $enabled=array_filter($limits,function($limit){return !empty($limit['enabled']);});
     $complete_limits=array_filter($enabled,function($limit){return !empty($limit['period']);});
+    $adequate_limits=array_filter($complete_limits,function($limit) use($options){return wphm_sc_limiter_meets_policy($limit,$options);});
     $limit_error=!empty($identity['limiter_error']);
-    $add('brute_force','ログイン試行制限（標準ログイン）',$complete_limits?'ok':($disabled?'attention':($limit_error?'error':'pending')),$texts?implode(' ／ ',array_slice($texts,0,20)):'設定と適用先を裏付けられる試行制限は、今回取得できていません。',$origins?:array_keys(wphm_sc_source_names()),'回数・計数期間・停止時間・適用先が確認できた設定を採用します。機能名やフックの存在だけで有効とは判定しません。別の認証経路全体を保証する判定ではありません。');
+    $add('brute_force','ログイン試行制限（標準ログイン）',$adequate_limits?'ok':($complete_limits || $disabled?'attention':($limit_error?'error':'pending')),$texts?implode(' ／ ',array_slice($texts,0,20)):'設定と適用先を裏付けられる試行制限は、今回取得できていません。',$origins?:array_keys(wphm_sc_source_names()),'取得した設定の判定基準：回数'.$options['login_max_tries'].'回以下・計数'.$options['login_min_period'].'秒以上・停止'.$options['login_min_lockout'].'秒以上。下部で調整できます。基準を満たす適用済み設定がなければ要確認です。機能名だけで有効とせず、別の認証経路全体の保護は未確認です。');
     $items['brute_force']['checks'][0]['source_confirmed']=(bool)$limits;
-    if(($sources['edge']['limit_status'] ?? '')==='permission') $items['brute_force']['checks'][0]['help'].=' 外部の回数制限ルールはAPIの読取り権限が不足しています。';
+    if(!empty($sources['edge']['failures']['login_limits'])) $items['brute_force']['checks'][0]['help'].=' 外部のログイン制限：'.wphm_sc_read_reason($sources['edge']['failures']['login_limits']);
     foreach($old['brute_force'] as $check) if($check['label']!=='ログイン試行制限') {
         if($check['label']==='認証記録' && !empty($facts['telemetry']['available'])) $check['status']='ok';
         $add('brute_force',$check['label'],$check['status'],$check['value'],['wordpress'],$check['help']);
@@ -50,7 +65,10 @@ function wphm_sc_source_assessment(array $facts, array $items): array {
 
     foreach($old['credential_stuffing'] as $check) {
         if($check['label']==='管理者の追加認証') { if($check['status']==='setup') $check['status']='pending'; $check['help']='標準ログインの利用者ごとの設定を確認します。取得元：'.implode('・',$identity['mfa_providers']).'。読み取れない設定・独自認証は未確認です。'; }
-        if($check['label']==='別の認証経路') { $check['status']=($identity['app_password_users'] ?? 0)>0?'attention':'ok'; }
+        if($check['label']==='別の認証経路') {
+            $check['status']=wphm_sc_alternate_auth_status($identity,$discovery);
+            $check['help']='登録0件だけで経路全体を確認済みにはしません。XML-RPC・アプリケーションパスワードが無効で、利用者と登録中の認証処理の確認に不足がない場合だけ、WordPress内の今回の確認範囲を確認済みとします。SSO・独自の別入口やサーバー側の適用は別に確認が必要です。';
+        }
         $add('credential_stuffing',$check['label'],$check['status'],$check['value'],['wordpress'],$check['help']);
     }
 
@@ -73,8 +91,10 @@ function wphm_sc_source_assessment(array $facts, array $items): array {
         $row=$sources[$source]; $traffic=$row['traffic'] ?? null;
         $status=$traffic!==null?'ok':(in_array($row['status'],['error','setup'],true)?$row['status']:'pending');
         $value=$traffic!==null?'取得期間'.(int)$traffic['window_seconds'].'秒／通信'.(int)$traffic['requests'].'件':'通信・負荷の統計は、この取得元から取得できていません。';
+        if(isset($traffic['from'],$traffic['to'])) $value.='／'.wphm_format_timestamp($traffic['from']).'〜'.wphm_format_timestamp($traffic['to']);
         if(isset($traffic['peak'],$traffic['errors']) && ($traffic['peak']>=$options['traffic_peak'] || $traffic['errors']>=$options['http_errors'])) $status='attention';
         $add('ddos',$source==='server'?'サーバーの通信・負荷':'外部の通信統計',$status,$value,[$source],'取得できた層と期間の統計です。回線全体のDDoS耐性や攻撃成立を保証しません。',empty($selected[$source]));
+        if(array_key_exists('waf',$row['capabilities'] ?? []) && $row['capabilities']['waf']!==null) $add('ddos',($source==='server'?'サーバー':'外部').'のWAF設定','ok',$row['capabilities']['waf']?'取得した対象のWAF設定は有効です。':'取得した対象のWAF設定は無効です。',[$source],'設定値の読取りです。個別の攻撃ルール・例外・負荷耐性の確認には代用しません。',true);
     }
 
     $code_warning=!empty($facts['file_edit_allowed']) || ($identity['code_users'] ?? 0)>0 || !empty($files['code_tools']);

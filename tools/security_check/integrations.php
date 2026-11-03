@@ -10,6 +10,7 @@ function wphm_sc_http(string $url, ?array $body = null, array $headers = [], ?st
     $valid = $host === 'api.wordpress.org' && in_array($path, ['/core/stable-check/1.0/','/core/serve-happy/1.0/','/plugins/update-check/1.1/','/themes/update-check/1.1/'], true);
     $valid = $valid || ($host === 'www.wpvulnerability.net' && preg_match('~^/(?:plugin|theme)/[a-z0-9][a-z0-9_-]{0,99}/$|^/core/[0-9][0-9.]{0,19}/$~D', $path));
     $valid = $valid || ($host === 'api.cloudflare.com' && preg_match('~^/client/v4/(?:graphql|zones/[a-f0-9]{32}(?:/rulesets/phases/(?:http_request_firewall_managed|http_ratelimit)/entrypoint)?)$~D', $path));
+    $valid = $valid || ($host === 'api.github.com' && preg_match('~^/repos/[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}/security-advisories$~D',$path) && ($parts['query'] ?? '')==='per_page=20&state=published' && $body===null);
     if (!$valid) return null;
     if (!isset($GLOBALS['wphm_sc_deadline'])) $GLOBALS['wphm_sc_deadline'] = microtime(true) + 25;
     $remaining = $GLOBALS['wphm_sc_deadline'] - microtime(true);
@@ -17,7 +18,7 @@ function wphm_sc_http(string $url, ?array $body = null, array $headers = [], ?st
     global $wp_version;
     $args = ['timeout' => min(3, $remaining), 'redirection' => 0, 'sslverify' => true, 'limit_response_size' => 1048577, 'decompress' => false, 'cookies' => [], 'user-agent' => 'WordPress/' . preg_replace('/[^0-9A-Za-z_.-]/', '', (string)$wp_version) . '; WP Helpers Multi/' . WPHM_VERSION, 'headers' => array_merge(['Accept'=>'application/json','Accept-Encoding'=>'identity'], $headers)];
     // A credential is accepted only for the fixed Cloudflare API host.
-    if ($host !== 'api.cloudflare.com') unset($args['headers']['Authorization']);
+    if (!in_array($host,['api.cloudflare.com','api.github.com'],true)) unset($args['headers']['Authorization']);
     if ($body !== null) {
         $args['body'] = $host === 'api.cloudflare.com' ? wp_json_encode($body) : $body;
         if ($host === 'api.cloudflare.com') $args['headers']['Content-Type'] = 'application/json';
@@ -31,6 +32,7 @@ function wphm_sc_http(string $url, ?array $body = null, array $headers = [], ?st
     if (strlen($text) > 1048576) { $failure='size'; return null; }
     if (!in_array($encoding, ['', 'identity'], true)) { $failure='encoding'; return null; }
     $data = json_decode($text, true, 64);
+    if($host==='api.github.com' && substr(ltrim($text),0,1)!=='[') { $failure='json'; return null; }
     if(!is_array($data)) { $failure='json'; return null; }
     $failure=null;
     return $data;
@@ -54,9 +56,9 @@ function wphm_sc_range(string $version, array $operator): ?bool {
 
 function wphm_sc_cloudflare(bool $refresh): array {
     $options = wphm_sc_options();
-    $out = ['configured'=>false,'known'=>false,'checked_at'=>0,'requests'=>null,'waf_rules'=>null,'blocked'=>null,'events'=>null,'login_limits'=>[],'limit_status'=>'unknown','state'=>'未設定'];
+    $out = ['configured'=>false,'known'=>false,'checked_at'=>0,'requests'=>null,'waf_rules'=>null,'blocked'=>null,'events'=>null,'login_limits'=>[],'limit_status'=>'unknown','state'=>'未設定','reason'=>$options['cf_zone']===''?'missing_id':'missing_key','failures'=>[]];
     if (!$options['cf_secret'] || !preg_match('/^[a-f0-9]{32}$/D',$options['cf_zone'])) return $out;
-    $out['configured'] = true; $out['state'] = '情報を取得できませんでした';
+    $out['configured'] = true; $out['state'] = '情報を取得できませんでした'; $out['reason']='recheck';
     $key = hash('sha256',wp_json_encode([$options['cf_zone'],$options['cf_secret'],home_url('/'),site_url('wp-login.php'),WPHM_VERSION]));
     if (!$refresh) {
         $cached = get_option('wphm_sc_cf_metadata',[]);
@@ -64,19 +66,21 @@ function wphm_sc_cloudflare(bool $refresh): array {
         return $out;
     }
     delete_option('wphm_sc_cf_metadata');
-    try { $token = wphm_sc_secret($options['cf_secret'],true); } catch (RuntimeException $exception) { return $out; }
-    if ($token === '') return $out;
+    try { $token = wphm_sc_secret($options['cf_secret'],true); } catch (Throwable $exception) { $out['reason']='credential'; return $out; }
+    if ($token === '') { $out['reason']='credential'; return $out; }
     $headers = ['Authorization'=>'Bearer ' . $token]; $base = 'https://api.cloudflare.com/client/v4/zones/' . $options['cf_zone'];
-    $zone = wphm_sc_http($base,null,$headers);
+    $zone_failure=null; $zone = wphm_sc_http($base,null,$headers,$zone_failure);
+    if($zone===null) { $out['reason']=wphm_sc_read_code($zone_failure); return $out; }
     $domain = is_array($zone) && ($zone['success'] ?? false) === true && is_string($zone['result']['name'] ?? null) ? strtolower($zone['result']['name']) : '';
     $site = strtolower((string)wp_parse_url(home_url('/'),PHP_URL_HOST));
-    if ($domain === '' || (isset($zone['result']['id']) && $zone['result']['id']!==$options['cf_zone']) || !($site === $domain || substr($site,-strlen('.'.$domain)) === '.'.$domain)) { $out['state']='ゾーンのドメイン一致を確認できませんでした'; return $out; }
+    if ($domain === '' || (isset($zone['result']['id']) && $zone['result']['id']!==$options['cf_zone']) || !($site === $domain || substr($site,-strlen('.'.$domain)) === '.'.$domain)) { $out['state']='ゾーンのドメイン一致を確認できませんでした'; $out['reason']=$domain===''?'schema':'site'; return $out; }
+    $out['reason']='';
     $query = 'query($zone: string, $start: Time, $end: Time) { viewer { zones(filter: {zoneTag: $zone}) { httpRequests1hGroups(limit: 24, filter: {datetime_geq: $start, datetime_lt: $end}) { sum { requests } } firewallEventsAdaptive(limit: 100, filter: {datetime_geq: $start, datetime_leq: $end}, orderBy: [datetime_DESC]) { action } } } }';
-    $data = wphm_sc_http('https://api.cloudflare.com/client/v4/graphql',['query'=>$query,'variables'=>['zone'=>$options['cf_zone'],'start'=>gmdate('Y-m-d\TH:00:00\Z',time()-DAY_IN_SECONDS),'end'=>gmdate('Y-m-d\TH:00:00\Z')]],$headers);
+    $data_failure=null; $data = wphm_sc_http('https://api.cloudflare.com/client/v4/graphql',['query'=>$query,'variables'=>['zone'=>$options['cf_zone'],'start'=>gmdate('Y-m-d\TH:00:00\Z',time()-DAY_IN_SECONDS),'end'=>gmdate('Y-m-d\TH:00:00\Z')]],$headers,$data_failure);
     $groups = $data['data']['viewer']['zones'][0]['httpRequests1hGroups'] ?? null;
     if (is_array($data['data']['viewer']['zones'] ?? null) && count($data['data']['viewer']['zones'])===1 && is_array($groups) && count($groups)<=24) {
         $total=0; $valid=true;
-        foreach ($groups as $group) { $n=$group['sum']['requests'] ?? null; if (!is_numeric($n) || $n<0 || $n>PHP_INT_MAX-$total) { $valid=false; break; } $total+=(int)$n; }
+        foreach ($groups as $group) { $n=$group['sum']['requests'] ?? null; if (!wphm_sc_valid_count($n,PHP_INT_MAX-$total)) { $valid=false; break; } $total+=$n; }
         if ($valid) $out['requests']=$total;
     }
     $events=$data['data']['viewer']['zones'][0]['firewallEventsAdaptive'] ?? null;
@@ -85,11 +89,17 @@ function wphm_sc_cloudflare(bool $refresh): array {
         foreach($events as $event) { if(!is_array($event) || !is_string($event['action'] ?? null) || strlen($event['action'])>40){$valid=false;break;} if($event['action']==='block') $blocked++; }
         if($valid){ $out['events']=count($events); $out['blocked']=$blocked; }
     }
-    $rules = wphm_sc_http($base . '/rulesets/phases/http_request_firewall_managed/entrypoint',null,$headers);
-    if (is_array($rules) && ($rules['success'] ?? false) === true && is_array($rules['result']['rules'] ?? null)) {
+    if($out['requests']===null) $out['failures']['traffic']=wphm_sc_read_code($data_failure ?? 'schema');
+    if($out['events']===null) $out['failures']['events']=wphm_sc_read_code($data_failure ?? 'schema');
+    $waf_failure=null; $rules = wphm_sc_http($base . '/rulesets/phases/http_request_firewall_managed/entrypoint',null,$headers,$waf_failure);
+    if (is_array($rules) && ($rules['success'] ?? false) === true && is_array($rules['result']['rules'] ?? null) && count($rules['result']['rules'])<=100) {
         $out['waf_rules']=0;
-        foreach ($rules['result']['rules'] as $rule) if (is_array($rule) && ($rule['enabled'] ?? true) === true && ($rule['action'] ?? '')==='execute') $out['waf_rules']++;
+        foreach ($rules['result']['rules'] as $rule) {
+            if(!is_array($rule) || (isset($rule['enabled']) && !is_bool($rule['enabled']))) { $out['waf_rules']=null; break; }
+            if(($rule['enabled'] ?? true) === true && ($rule['action'] ?? '')==='execute') $out['waf_rules']++;
+        }
     }
+    if($out['waf_rules']===null) $out['failures']['waf']=wphm_sc_read_code($waf_failure ?? 'schema');
     $failure=null;
     $rate=wphm_sc_http($base.'/rulesets/phases/http_ratelimit/entrypoint',null,$headers,$failure);
     $out['limit_status']=in_array($failure,['http_401','http_403'],true)?'permission':'error';
@@ -101,6 +111,7 @@ function wphm_sc_cloudflare(bool $refresh): array {
             if(count($out['login_limits'])>=20) break;
         }
     }
+    if($out['limit_status']!=='confirmed') $out['failures']['login_limits']=$out['limit_status']==='no_match'?'no_match':wphm_sc_read_code($failure ?? 'schema');
     $out['known']=$out['requests']!==null || $out['waf_rules']!==null || $out['events']!==null || $out['login_limits'];
     $out['known']=(bool)$out['known'];
     $out['checked_at']=$out['known'] ? time() : 0; $out['key']=$key;

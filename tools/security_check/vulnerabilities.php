@@ -3,7 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 function wphm_sc_lookup_reason(string $code): string {
     $messages=['network'=>'通信・証明書の確認に失敗しました','budget'=>'今回の通信予算に達しました','size'=>'応答のサイズ上限を超えました','encoding'=>'対応しない圧縮応答です','json'=>'JSON応答を読み取れませんでした','schema'=>'製品名・版条件などの応答形式を確認できませんでした','http_404'=>'データベースに製品情報がありません','http_403'=>'照会先からアクセスを拒否されました','http_429'=>'照会先の回数制限に達しました','redirect'=>'転送応答のため取得を停止しました'];
-    return $messages[$code] ?? '照会先から正常な情報を取得できませんでした';
+    return isset(wphm_sc_read_reasons()[$code]) || preg_match('/^http_5[0-9]{2}$/D',$code)?wphm_sc_read_reason($code):($messages[$code] ?? '照会先から正常な情報を取得できませんでした');
 }
 
 function wphm_sc_vulnerability_record(array $data,string $kind,string $slug,string $version): ?array {
@@ -47,12 +47,18 @@ function wphm_sc_lookup_targets(array $inventory): array {
     foreach(['plugins'=>'plugin','themes'=>'theme','mu_plugins'=>'mu','dropins'=>'dropin'] as $group=>$kind) foreach($inventory[$group] ?? [] as $id=>$item) {
         $slug=$kind==='plugin' ? (strpos($id,'/')===false?basename($id,'.php'):dirname($id)):$id;
         $public=in_array($kind,['plugin','theme'],true) && wphm_sc_wporg_item($item) && (bool)preg_match('/^[a-z0-9][a-z0-9_-]{0,99}$/D',$slug) && (bool)preg_match('/^[0-9][0-9A-Za-z.+_-]{0,39}$/D',$item['Version']);
-        $targets[]=['kind'=>$kind,'slug'=>$slug,'version'=>$item['Version'],'name'=>$item['Name'],'eligible'=>$public,'reason'=>in_array($kind,['mu','dropin'],true)?'MUプラグイン・ドロップインは製品同定の連携対象外です':'独自配布・識別形式・版情報を公式配布対象として確認できません'];
+        $vendor_key=hash('sha256',$kind.':'.$id);
+        $vendor=!$public && wphm_sc_options()['vendor']?wphm_sc_vendor_mapping($vendor_key,['kind'=>$kind,'file'=>$id]):null;
+        $vendor_valid=$vendor!==null && (bool)preg_match('/^[0-9][0-9A-Za-z.+_-]{0,39}$/D',$item['Version']);
+        $target=['kind'=>$kind,'slug'=>$slug,'version'=>$item['Version'],'name'=>$item['Name'],'eligible'=>$public || $vendor_valid,'reason'=>$vendor_valid?'登録したGitHub配布元の公開済みアドバイザリとの照合':(in_array($kind,['mu','dropin'],true)?'MU・ドロップインの配布元照合が未登録・未選択です':'独自配布元の照合が未登録・未選択、または版情報が対象外です')];
+        if($vendor_valid) { $target['vendor']=$vendor; $target['provider_key']=hash('sha256',wp_json_encode($vendor)); }
+        $targets[]=$target;
     }
     return $targets;
 }
 
 function wphm_sc_cached_lookup($record,array $target): bool {
+    if(isset($target['provider_key']) && (!is_array($record) || ($record['provider'] ?? '')!==$target['provider_key'])) return false;
     if(!is_array($record) || ($record['status'] ?? 'checked')!=='checked' || ($record['kind'] ?? '')!==$target['kind'] || ($record['slug'] ?? '')!==$target['slug'] || ($record['version'] ?? '')!==$target['version'] || !is_int($record['checked_at'] ?? null) || $record['checked_at']<time()-DAY_IN_SECONDS || $record['checked_at']>time()+60 || !is_array($record['matches'] ?? null) || count($record['matches'])>20 || !is_int($record['unresolved'] ?? null) || $record['unresolved']<0 || !is_bool($record['closed'] ?? null) || strlen(serialize($record))>32768) return false;
     if(isset($record['affected']) && (!is_int($record['affected']) || $record['affected']<count($record['matches']) || $record['affected']>1000)) return false;
     if(isset($record['cwe']) && (!is_array($record['cwe']) || count($record['cwe'])>64)) return false;
@@ -86,14 +92,17 @@ function wphm_sc_vulnerabilities(array $inventory,bool $refresh,string $run=''):
     for($i=0;$i<$count;$i++) {
         $target=$targets[($cursor+$i)%$count]; $row=['name'=>$target['name'],'version'=>$target['version'],'kind'=>$target['kind'],'status'=>'unsupported','reason'=>$target['reason'],'checked_at'=>0];
         if(!$target['eligible']) { $out['unsupported']++; $out['products'][]=$row; continue; }
-        $out['eligible']++; $key=hash('sha256',$target['kind'].':'.$target['slug'].':'.$target['version']); $record=$cache[$key] ?? null;
+        $out['eligible']++; $key=hash('sha256',$target['kind'].':'.$target['slug'].':'.$target['version'].(isset($target['provider_key'])?':'.$target['provider_key']:'')); $record=$cache[$key] ?? null;
         $valid=wphm_sc_cached_lookup($record,$target);
         $failed=is_array($record) && (!$refresh || ($run!=='' && ($record['run'] ?? '')===$run)) && ($record['status'] ?? '')==='failed' && is_int($record['checked_at'] ?? null) && $record['checked_at']>=time()-900 && $record['checked_at']<=time()+60 && is_string($record['code'] ?? null) && strlen($record['code'])<=30;
         $budget=($GLOBALS['wphm_sc_deadline'] ?? microtime(true)+1)-microtime(true);
         if($out['enabled'] && !$valid && !$failed && $refresh && $calls<8 && $budget>=0.25) {
             $calls++; $error=null;
-            $data=wphm_sc_http('https://www.wpvulnerability.net/'.$target['kind'].'/'.rawurlencode($target['slug']).'/',null,[],$error);
-            $record=$data!==null ? wphm_sc_vulnerability_record($data,$target['kind'],$target['slug'],$target['version']) : null;
+            if(isset($target['vendor'])) $record=wphm_sc_vendor_fetch($target,$error);
+            else {
+                $data=wphm_sc_http('https://www.wpvulnerability.net/'.$target['kind'].'/'.rawurlencode($target['slug']).'/',null,[],$error);
+                $record=$data!==null ? wphm_sc_vulnerability_record($data,$target['kind'],$target['slug'],$target['version']) : null;
+            }
             $valid=$record!==null;
             if(!$valid) { $record=['status'=>'failed','checked_at'=>time(),'run'=>$run,'code'=>$error ?? 'schema']; $failed=true; }
             update_option('wphm_sc_vulnerability_cursor',($cursor+$i+1)%max(1,$count),false);

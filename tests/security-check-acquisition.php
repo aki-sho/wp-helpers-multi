@@ -171,7 +171,7 @@ try {
     sc_same(false,strpos($html,'<script>label')!==false,'check labels escaped');
     sc_same(false,strpos($html,'<img src=x')!==false,'check help escaped');
     sc_same(true,strpos($html,'&lt;script&gt;label')!==false,'escaped label remains readable');
-    $sources_input['server_token']=''; $sources_input['source_edge']='1'; $sources_input['edge_provider']='fixture_edge';
+    $sources_input['server_token']=str_repeat('s',32); $sources_input['source_edge']='1'; $sources_input['edge_provider']='fixture_edge';
     wphm_sc_save_sources($sources_input);
     $facts=wphm_sc_collect(true)['facts'];
     $assessed=array_column(wphm_sc_assess($facts),null,'id');

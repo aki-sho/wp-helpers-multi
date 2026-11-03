@@ -12,7 +12,8 @@ function wphm_sc_report(bool $refresh = false, string $operation = 'recheck', st
     $revision = get_option('wphm_sc_revision', '');
     if (is_string($revision) && $revision !== '') $key .= '_' . substr(hash('sha256',$revision),0,16);
     $preferences=wphm_sc_options();
-    $key.='_'.substr(hash('sha256',wp_json_encode([wphm_sc_source_selection(),$preferences['updates'],$preferences['vulnerabilities']])),0,12);
+    $key.='_'.substr(wphm_sc_users_signature(),0,12);
+    $key.='_'.substr(hash('sha256',wp_json_encode([wphm_sc_source_selection(),$preferences['updates'],$preferences['vulnerabilities'],$preferences['vendor']])),0,12);
     if (!$refresh) {
         $cached = get_transient($key);
         if (is_array($cached) && ($cached['schema'] ?? 0)===2 && isset($cached['checked_at'], $cached['items'], $cached['facts']) && is_int($cached['checked_at']) && $cached['checked_at'] >= time()-5*MINUTE_IN_SECONDS && $cached['checked_at'] <= time()) return $cached;
@@ -33,14 +34,15 @@ function wphm_sc_report(bool $refresh = false, string $operation = 'recheck', st
         if ($refresh) update_option('wphm_sc_last_step',time(),false);
         $report=wphm_sc_collect($refresh,$operation==='continue',$job);
         $pending=(int)($report['facts']['vulnerabilities']['pending'] ?? 0);
-        $scan=['run'=>'','pending'=>$pending,'auto'=>false,'stopped'=>false];
+        $users_pending=!empty($report['facts']['identity']['pending']); $has_more=$pending>0 || $users_pending;
+        $scan=['run'=>'','pending'=>$pending,'users_pending'=>$users_pending,'auto'=>false,'stopped'=>false];
         if ($refresh) {
             $job['fingerprint']=$report['fingerprint']; $job['steps']++;
-            if ($pending>0 && $job['created']>=time()-600 && $job['steps']<64 && empty($report['facts']['vulnerabilities']['limited'])) {
+            if ($has_more && $job['created']>=time()-600 && $job['steps']<64 && ($users_pending || empty($report['facts']['vulnerabilities']['limited']))) {
                 set_transient($job_key,$job,max(1,600-(time()-$job['created'])));
                 $scan['run']=$job['id']; $scan['auto']=true;
             } else {
-                delete_transient($job_key); $scan['stopped']=$pending>0;
+                delete_transient($job_key); $scan['stopped']=$has_more;
             }
         }
         $report['schema']=2; $report['scan']=$scan;
@@ -113,7 +115,7 @@ function wphm_sc_ajax(): void {
         wp_send_json_error(['message' => wphm_sc_failure_message($exception)], $exception instanceof WPHM_Security_Check_Exception ? 409 : 500);
     }
     $options=wphm_sc_options();
-    wp_send_json_success(['html' => $html,'scan'=>$report['scan'],'connections'=>['cf'=>$options['cf_secret']!=='','server'=>$options['server_secret']!=='','edge'=>$options['edge_secret']!=='']]);
+    wp_send_json_success(['html' => $html,'scan'=>$report['scan'],'connections'=>['cf'=>$options['cf_secret']!=='','server'=>$options['server_secret']!=='','edge'=>$options['edge_secret']!=='','gh'=>$options['gh_secret']!=='']]);
 }
 
 function wphm_sc_assets(): void {
@@ -133,9 +135,9 @@ function wphm_sc_report_html(array $report): void {
         <p><?php echo $report['refreshed'] ? '設定・集計を読み直し、設定された外部照会を実行しました。製品ごとの取得日時と未確認範囲は詳細に表示します。' : '保存済みの照会根拠と現在の設定・集計を参照しています。「再チェック」で外部情報を更新します。'; ?></p>
     </div>
     <p class="description wphm-sc-risk-help">棒は達成率ではなく、確認項目から判定したリスクです。低は確認できた対象の範囲の評価です。未確認を安全とは扱いません。（）は設定・記録の場所、未取得は「確認先」、補助情報は「参考」と表示します。</p>
-    <?php if(!empty($scan['pending'])): ?>
+    <?php if(!empty($scan['pending']) || !empty($scan['users_pending'])): ?>
     <div class="wphm-sc-scan" data-run="<?php echo esc_attr($scan['run'] ?? ''); ?>" role="status">
-        <span>既知脆弱性：未照合 <?php echo (int)$scan['pending']; ?>製品。<?php echo !empty($scan['stopped']) ? '処理上限に達しました。再チェックで保存済みの続きから照合できます。' : 'この画面の自動照合で続きを確認します。画面を閉じると続行を停止します。'; ?></span>
+        <span>既知脆弱性：未照合 <?php echo (int)$scan['pending']; ?>製品。<?php if(!empty($scan['users_pending'])): ?>利用者：<?php echo (int)$facts['identity']['checked']; ?>人を確認、残りを分割確認します。<?php endif; ?><?php echo !empty($scan['stopped']) ? '処理上限に達しました。再チェックで保存済みの続きから照合できます。' : 'この画面の自動照合で続きを確認します。画面を閉じると続行を停止します。'; ?></span>
         <?php if(!empty($scan['run'])): ?><form method="post" class="wphm-sc-continue-form" action="<?php echo esc_url(admin_url('admin.php?page=wphm-security-check')); ?>"><?php wp_nonce_field('wphm_security_check','nonce',false); ?><input type="hidden" name="wphm_sc_action" value="continue"><input type="hidden" name="run" value="<?php echo esc_attr($scan['run']); ?>"><button class="button" type="submit">照合を続ける</button></form><?php endif; ?>
     </div>
     <?php endif; ?>

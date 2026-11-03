@@ -1,6 +1,20 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
+/** Reject nested input, booleans and numeric prefixes before a record mutation. */
+function wphm_positive_id($value): int {
+    if(!is_int($value) && !(is_string($value) && preg_match('/^[1-9][0-9]{0,18}$/D',$value))) return 0;
+    $id=filter_var($value,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>PHP_INT_MAX]]);
+    return $id===false?0:$id;
+}
+function wphm_positive_ids(array $values, int $limit=200): array {
+    $out=[];
+    foreach(array_slice($values,0,max(1,min(200,$limit))) as $value) {
+        $id=wphm_positive_id($value); if($id>0) $out[$id]=$id;
+    }
+    return array_values($out);
+}
+
 /** Parse a date stored or entered in the site's timezone without applying the offset twice. */
 function wphm_parse_site_datetime(string $value, string $format = 'Y-m-d H:i:s'): ?DateTimeImmutable {
     $date = DateTimeImmutable::createFromFormat('!' . $format, $value, wp_timezone());

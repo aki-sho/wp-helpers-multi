@@ -12,6 +12,7 @@ function wphm_sc_evidence_html(array $facts): void {
     $logs=$facts['logs'];
     $lines[]='従来ログの抽出：' . ($logs['available'] ? $logs['sampled'] . '件、最初 ' . (!empty($logs['from']) ? wphm_format_timestamp($logs['from']) : '未計測') . '、最後 ' . (!empty($logs['to']) ? wphm_format_timestamp($logs['to']) : '未計測') : '未計測') . '。ボット除外・記録頻度制限・抽出上限のあるログです。';
     if ($identity) {
+        $lines[]='利用者は管理者を優先し、1処理200人まで分割確認します。画面を閉じると続行を止め、未完了は未確認を維持します。役割・関連する認証メタ情報の変更で過去の集計を無効化します。';
         $lines[]='認証イベントは標準の失敗・wp_login・アプリケーションパスワードのフックから集計します。XML-RPCの成功・SSO・独自認証など、全経路の最終ログイン成否は未確認です。';
         $lines[]='既存利用者 ' . $identity['checked'] . '人を確認。人数上限：' . ($identity['limited'] ? '到達（残りは未確認）' : '未到達') . '。XML-RPC認証設定 ' . ($identity['xmlrpc_auth'] ? '有効' : '無効') . '、アプリケーションパスワード受付 ' . ($identity['application_passwords']===null ? '未確認' : ($identity['application_passwords'] ? '有効' : '無効')) . '、確認範囲の登録利用者 ' . $identity['app_password_users'] . '人。2FAの全認証経路への強制は未確認です。';
         foreach ($identity['roles'] as $role) $lines[]='役割 ' . $role['name'] . '：' . implode(', ',$role['capabilities']) . '。役割の設定値と利用者の実効権限は区別しています。';

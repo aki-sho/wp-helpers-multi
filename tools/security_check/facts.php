@@ -158,7 +158,7 @@ function wphm_sc_collect(bool $refresh = false, bool $continuing = false, array 
     $file_edit_disabled = (defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT) || (defined('DISALLOW_FILE_MODS') && DISALLOW_FILE_MODS);
     $file_uploads = ini_get('file_uploads');
     $inventory = wphm_sc_inventory();
-    $fingerprint=hash('sha256',wp_json_encode([WPHM_VERSION,(string)$wp_version,PHP_VERSION,$inventory,get_option('active_plugins',[]),get_site_option('active_sitewide_plugins',[]),get_stylesheet(),get_option('wphm_sc_revision',''),$selection,$options['updates'],$options['vulnerabilities']]));
+    $fingerprint=hash('sha256',wp_json_encode([WPHM_VERSION,(string)$wp_version,PHP_VERSION,$inventory,get_option('active_plugins',[]),get_site_option('active_sitewide_plugins',[]),get_stylesheet(),get_option('wphm_sc_revision',''),$selection,$options['updates'],$options['vulnerabilities'],$options['vendor'],wphm_sc_users_signature()]));
     if($continuing && (!is_string($context['fingerprint'] ?? null) || !hash_equals($context['fingerprint'],$fingerprint))) throw new WPHM_Security_Check_Exception('照合中に製品・設定が変更されました。再チェックしてください。');
     $facts = [
         'registration' => !is_multisite() && (bool)get_option('users_can_register', false),
@@ -172,15 +172,15 @@ function wphm_sc_collect(bool $refresh = false, bool $continuing = false, array 
         'logs' => wphm_sc_log_facts($selection['wordpress']),
         'updates' => wphm_sc_update_facts($inventory, $refresh && !$continuing),
         'telemetry' => wphm_sc_telemetry_facts($selection['wordpress']),
-        'identity' => wphm_sc_identity_facts($selection['wordpress']),
+        'identity' => wphm_sc_identity_facts($selection['wordpress'],$refresh?($continuing?'continue':'recheck'):'view'),
         'files' => wphm_sc_file_facts($inventory,$selection['wordpress']),
         'audit' => $selection['wordpress']?wphm_sc_audit_facts():['known'=>false,'files'=>0,'changed'=>0,'version'=>'','groups'=>[]],
         'cloudflare' => $selection['edge'] && $options['edge_provider']==='cloudflare'?wphm_sc_cloudflare($refresh && !$continuing):['configured'=>false,'known'=>false,'checked_at'=>0,'requests'=>null,'waf_rules'=>null,'blocked'=>null,'events'=>null,'state'=>'今回未調査'],
-        'vulnerabilities' => wphm_sc_vulnerabilities($inventory, $refresh, is_string($context['id'] ?? null)?$context['id']:''),
     ];
     $options = wphm_sc_options();
     $facts['server'] = array_intersect_key($options, array_flip(['uploads_execution','vendor_patches','evidence','attested_at']));
     $facts['acquisition']=wphm_sc_acquisition_facts($facts,$refresh && !$continuing);
+    $facts['vulnerabilities']=wphm_sc_vulnerabilities($inventory,$refresh,is_string($context['id'] ?? null)?$context['id']:'');
     $facts['inventory'] = [];
     foreach (['plugins','themes','mu_plugins','dropins'] as $group) $facts['inventory'][$group] = array_values(array_map(function ($item) { return ['name'=>$item['Name'],'version'=>$item['Version']]; }, $inventory[$group]));
     return ['schema'=>2,'fingerprint'=>$fingerprint,'checked_at' => time(), 'refreshed' => $refresh, 'facts' => $facts, 'items' => wphm_sc_assess($facts)];

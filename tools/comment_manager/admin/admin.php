@@ -6,13 +6,13 @@ function wphm_comment_manager_handle_request(): void {
     if (!current_user_can('manage_options')) wp_die('権限がありません。', '', ['response' => 403]);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['wphm_comment_manager_action'])) {
-        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce((string)$_POST['_wpnonce'], 'wphm_comment_manager_action')) {
+        if (!is_string($_POST['_wpnonce'] ?? null) || !wp_verify_nonce($_POST['_wpnonce'], 'wphm_comment_manager_action')) {
             wp_die('Nonceが不正です。');
         }
 
-        $action = sanitize_text_field((string)$_POST['wphm_comment_manager_action']);
-        $ids = isset($_POST['ids']) ? array_map('intval', (array)$_POST['ids']) : [];
-        $ids = array_slice(array_values(array_unique($ids)), 0, 200);
+        if(!is_string($_POST['wphm_comment_manager_action']) || (isset($_POST['ids']) && !is_array($_POST['ids']))) wp_die('操作・IDの形式が不正です。','',['response'=>400]);
+        $action = sanitize_text_field($_POST['wphm_comment_manager_action']);
+        $ids = wphm_positive_ids($_POST['ids'] ?? []);
         $duration = DAY_IN_SECONDS;
         if ($action === 'spam_block') {
             wphm_comment_manager_prepare_block($ids);

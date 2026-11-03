@@ -16,11 +16,11 @@ function wphm_sc_source_selection(): array {
 /** Trusted installed code registers readers. No URL, path, PHP name or callback comes from a form. */
 function wphm_sc_readers(): array {
     $out=[];
-    try { $registered=apply_filters('wphm_security_readers',[]); } catch(Throwable $error) { return $out; }
+    try { $registered=apply_filters('wphm_security_readers',wphm_sc_builtin_readers()); } catch(Throwable $error) { return $out; }
     if(!is_array($registered)) return $out;
     foreach(array_slice($registered,0,16,true) as $id=>$reader) {
         if(!is_string($id) || !preg_match('/^[a-z][a-z0-9_-]{0,39}$/D',$id) || in_array($id,['local','cloudflare'],true) || !is_array($reader) || !in_array($reader['source'] ?? '',['server','edge'],true) || !is_string($reader['name'] ?? null) || !is_callable($reader['read'] ?? null)) continue;
-        $out[$id]=['source'=>$reader['source'],'name'=>sanitize_text_field(substr($reader['name'],0,100)),'read'=>$reader['read'],'needs_id'=>!empty($reader['needs_id']),'needs_token'=>!empty($reader['needs_token'])];
+        $out[$id]=['source'=>$reader['source'],'name'=>sanitize_text_field(substr($reader['name'],0,100)),'read'=>$reader['read'],'needs_id'=>!empty($reader['needs_id']),'needs_token'=>!empty($reader['needs_token']),'help'=>is_string($reader['help'] ?? null)?sanitize_text_field(substr($reader['help'],0,800)):'' ];
     }
     return $out;
 }
@@ -40,11 +40,16 @@ function wphm_sc_setting_integer($value, int $min, int $max): ?int {
 }
 
 /** Only bounded numeric/boolean facts survive. Raw API bodies, errors and identifiers are discarded. */
-function wphm_sc_normalize_reader($raw, string $source, string $name): ?array {
-    if(!is_array($raw) || ($raw['schema'] ?? null)!==1 || !is_string($raw['site'] ?? null) || wphm_sc_site_key($raw['site'])==='' || wphm_sc_site_key($raw['site'])!==wphm_sc_site_key(home_url('/')) || !is_int($raw['checked_at'] ?? null) || $raw['checked_at']<time()-300 || $raw['checked_at']>time()+60) return null;
-    $out=['status'=>'ok','name'=>$name,'checked_at'=>$raw['checked_at'],'login_limits'=>[],'capabilities'=>[],'traffic'=>null,'partial'=>false];
+function wphm_sc_normalize_reader($raw, string $source, string $name, ?string &$failure=null): ?array {
+    $failure='schema';
+    if(!is_array($raw) || ($raw['schema'] ?? null)!==1 || !is_string($raw['site'] ?? null) || !is_int($raw['checked_at'] ?? null)) return null;
+    if(wphm_sc_site_key($raw['site'])==='' || wphm_sc_site_key($raw['site'])!==wphm_sc_site_key(home_url('/'))) { $failure='site'; return null; }
+    if($raw['checked_at']<time()-300) { $failure='stale'; return null; }
+    if($raw['checked_at']>time()+60) { $failure='future'; return null; }
+    $out=['status'=>'ok','name'=>$name,'checked_at'=>$raw['checked_at'],'login_limits'=>[],'capabilities'=>[],'traffic'=>null,'partial'=>false,'reason'=>''];
     if(isset($raw['login_limits'])) {
-        if(!is_array($raw['login_limits']) || count($raw['login_limits'])>20) return null;
+        if(!is_array($raw['login_limits'])) return null;
+        if(count($raw['login_limits'])>20) { $failure='size'; return null; }
         foreach($raw['login_limits'] as $limit) {
             if(!is_array($limit) || !is_bool($limit['enabled'] ?? null) || !is_bool($limit['applied'] ?? null) || !is_array($limit['routes'] ?? null) || count($limit['routes'])>4 || !$limit['routes']) return null;
             foreach($limit['routes'] as $route) if(!in_array($route,['wp_login','xmlrpc','rest','custom'],true)) return null;
@@ -67,9 +72,14 @@ function wphm_sc_normalize_reader($raw, string $source, string $name): ?array {
             $traffic[$key]=$raw['traffic'][$key];
         }
         if($traffic['window_seconds']<60 || $traffic['errors']>$traffic['requests']) return null;
+        if(isset($raw['traffic']['from']) || isset($raw['traffic']['to'])) {
+            if(!is_int($raw['traffic']['from'] ?? null) || !is_int($raw['traffic']['to'] ?? null) || $raw['traffic']['from']<time()-DAY_IN_SECONDS || $raw['traffic']['to']>time()+60 || $raw['traffic']['to']-$raw['traffic']['from']!==$traffic['window_seconds']) return null;
+            $traffic['from']=$raw['traffic']['from']; $traffic['to']=$raw['traffic']['to'];
+        }
         $out['traffic']=$traffic;
     }
-    if(!$out['login_limits'] && !$out['capabilities'] && $out['traffic']===null) $out['status']='unsupported';
+    if(!$out['login_limits'] && !$out['capabilities'] && $out['traffic']===null) { $out['status']='unsupported'; $out['reason']='no_data'; }
+    $failure=null;
     return $out;
 }
 
@@ -77,32 +87,33 @@ function wphm_sc_reader_facts(string $source, bool $refresh): array {
     $options=wphm_sc_options(); $id=$options[$source.'_provider'];
     if($source==='server' && $id==='local') return ['status'=>'partial','name'=>'PHPのローカル読取り','checked_at'=>time(),'login_limits'=>[],'capabilities'=>[],'traffic'=>null,'partial'=>true,'local_php'=>['version'=>PHP_VERSION,'file_uploads'=>filter_var(ini_get('file_uploads'),FILTER_VALIDATE_BOOLEAN,FILTER_NULL_ON_FAILURE),'max_execution_seconds'=>max(0,(int)ini_get('max_execution_time'))]];
     $readers=wphm_sc_readers();
-    $empty=['status'=>'unsupported','name'=>'登録済みの読取り連携','checked_at'=>0,'login_limits'=>[],'capabilities'=>[],'traffic'=>null];
+    $empty=['status'=>'unsupported','name'=>'登録済みの読取り連携','checked_at'=>0,'login_limits'=>[],'capabilities'=>[],'traffic'=>null,'reason'=>'unregistered'];
     if(!isset($readers[$id]) || $readers[$id]['source']!==$source) return $empty;
     $reader=$readers[$id]; $empty['name']=$reader['name'];
-    if(($reader['needs_id'] && $options[$source.'_connection']==='') || ($reader['needs_token'] && $options[$source.'_secret']==='')) { $empty['status']='setup'; return $empty; }
+    if(($reader['needs_id'] && $options[$source.'_connection']==='') || ($reader['needs_token'] && $options[$source.'_secret']==='')) { $empty['status']='setup'; $empty['reason']=$reader['needs_id'] && $options[$source.'_connection']===''?'missing_id':'missing_key'; return $empty; }
     $cache_key='wphm_sc_reader_'.$source;
     $signature=hash('sha256',wp_json_encode([$id,$options[$source.'_connection'],$options[$source.'_secret'],wphm_sc_site_key(home_url('/'))]));
     if(!$refresh) {
         $saved=get_option($cache_key,[]);
         if(is_array($saved) && ($saved['signature'] ?? '')===$signature && is_array($saved['facts'] ?? null)) {
-            $valid=wphm_sc_normalize_reader($saved['facts']+['schema'=>1,'site'=>home_url('/')],$source,$reader['name']);
+            $cache_failure=null; $valid=wphm_sc_normalize_reader($saved['facts']+['schema'=>1,'site'=>home_url('/')],$source,$reader['name'],$cache_failure);
             if($valid!==null) return $valid;
         }
-        $empty['status']='pending'; return $empty;
+        $empty['status']='pending'; $empty['reason']=$cache_failure ?? 'recheck'; return $empty;
     }
     delete_option($cache_key);
     $budget=isset($GLOBALS['wphm_sc_deadline'])?min(3.0,$GLOBALS['wphm_sc_deadline']-microtime(true)):3.0;
-    if($budget<0.25) { $empty['status']='pending'; return $empty; }
+    if($budget<0.25) { $empty['status']='pending'; $empty['reason']='budget'; return $empty; }
+    $failure='schema';
     try {
         $token=$options[$source.'_secret']!=='' ? wphm_sc_secret($options[$source.'_secret'],true) : '';
-        if($reader['needs_token'] && $token==='') { $empty['status']='error'; return $empty; }
+        if($reader['needs_token'] && $token==='') { $empty['status']='error'; $empty['reason']='credential'; return $empty; }
         $started=microtime(true);
         $raw=call_user_func($reader['read'],['site'=>home_url('/'),'connection_id'=>$options[$source.'_connection'],'token'=>$token,'refresh'=>true,'timeout'=>$budget,'max_bytes'=>65536,'max_records'=>20]);
-        if(microtime(true)-$started>$budget+0.1) { $empty['status']='error'; return $empty; }
-        $facts=wphm_sc_normalize_reader($raw,$source,$reader['name']);
-    } catch(Throwable $error) { $facts=null; }
-    if($facts===null) { $empty['status']='error'; return $empty; }
+        if(microtime(true)-$started>$budget+0.1) { $empty['status']='error'; $empty['reason']='timeout'; return $empty; }
+        $facts=wphm_sc_normalize_reader($raw,$source,$reader['name'],$failure);
+    } catch(Throwable $error) { $facts=null; $failure=$error instanceof WPHM_Security_Read_Exception?$error->reason:'exception'; }
+    if($facts===null) { $empty['status']='error'; $empty['reason']=wphm_sc_read_code($failure); return $empty; }
     update_option($cache_key,['signature'=>$signature,'facts'=>$facts],false);
     return $facts;
 }
@@ -114,11 +125,13 @@ function wphm_sc_acquisition_facts(array $facts, bool $refresh): array {
         if(!$selected[$source]) { $out['sources'][$source]=$row; continue; }
         if($source==='wordpress') {
             $row['status']='ok'; $row['checked_at']=time();
+            if(!empty($facts['identity']['limited'])) $row['status']='partial';
             $row['login_limits']=$facts['identity']['limiters'] ?? [];
             $row['discovery']=wphm_sc_discover_auth();
         } elseif($source==='edge' && wphm_sc_options()['edge_provider']==='cloudflare') {
             $cf=$facts['cloudflare']; $row['name']='Cloudflare';
-            $row['status']=empty($cf['configured'])?'setup':(!empty($cf['known'])?'partial':'error');
+            $row['status']=empty($cf['configured'])?'setup':(!empty($cf['known'])?'partial':(($cf['reason'] ?? '')==='recheck'?'pending':'error'));
+            $row['reason']=$cf['reason'] ?? ''; $row['failures']=$cf['failures'] ?? [];
             $row['checked_at']=$cf['checked_at']; $row['login_limits']=$cf['login_limits'] ?? [];
             $row['limit_status']=$cf['limit_status'] ?? 'unknown';
             if($cf['waf_rules']!==null) $row['capabilities']['waf']=$cf['waf_rules']>0;
@@ -168,5 +181,10 @@ function wphm_sc_discover_auth(): array {
 function wphm_sc_source_reason(array $source): string {
     $messages=['ok'=>'選択した場所の情報を取得しました。','partial'=>'一部の情報を取得しました。各確認項目に未取得の理由を表示します。','skip'=>'今回は調べていません。対策がないという意味ではありません。','setup'=>'読取り連携の接続情報が不足しています。防御設定の無効とは区別します。','pending'=>'この接続情報でまだ取得できていません。処理上限の場合も含みます。再チェックしてください。','unsupported'=>'この場所の必要な読取り情報に対応する連携が確認できません。','error'=>'権限・応答形式・対象サイト・通信状態を確認できませんでした。'];
     if(($source['status'] ?? '')==='na') return 'この項目はアプリ側の操作受付が確認対象です。一般のWAF設定で判定しません。';
+    if(!empty($source['reason'])) return wphm_sc_read_reason($source['reason']);
+    if(!empty($source['failures']) && is_array($source['failures'])) {
+        $reasons=[]; foreach(['traffic'=>'通信統計','events'=>'遮断記録','waf'=>'管理WAF','login_limits'=>'ログイン制限'] as $key=>$label) if(isset($source['failures'][$key]) && is_string($source['failures'][$key])) $reasons[]=$label.'：'.wphm_sc_read_reason($source['failures'][$key]);
+        if($reasons) return '一部取得。'.implode(' ',$reasons);
+    }
     return $messages[$source['status']] ?? '情報を確認できませんでした。';
 }

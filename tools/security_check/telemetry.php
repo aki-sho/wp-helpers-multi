@@ -177,3 +177,14 @@ add_action('wp_login_failed', 'wphm_sc_login_failed', 10, 1);
 add_action('wp_login', 'wphm_sc_login_success', 0, 1);
 add_action('application_password_did_authenticate', 'wphm_sc_application_success', 10, 1);
 add_action('application_password_failed_authentication', 'wphm_sc_application_failed', 10, 1);
+
+/** Invalidate only this feature's bounded aggregate cache when relevant user settings change. */
+function wphm_sc_users_changed(): void {
+    if(!wphm_is_tool_enabled('security_check')) return;
+    update_site_option('wphm_sc_users_revision',wp_generate_password(16,false,false));
+}
+function wphm_sc_user_meta_changed($meta_id, $user_id, $key): void {
+    if(is_string($key) && preg_match('/(?:capabilities$|^_application_passwords$|two_factor|wfls|wordfence)/i',$key)) wphm_sc_users_changed();
+}
+foreach(['user_register','deleted_user','profile_update','set_user_role','add_user_role','remove_user_role'] as $hook) add_action($hook,'wphm_sc_users_changed',10,0);
+foreach(['added_user_meta','updated_user_meta','deleted_user_meta'] as $hook) add_action($hook,'wphm_sc_user_meta_changed',10,3);

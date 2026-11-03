@@ -8,10 +8,14 @@ function wphm_sc_failure_message(Throwable $error): string {
 }
 
 require_once __DIR__ . '/options.php';
+require_once __DIR__ . '/read-errors.php';
 require_once __DIR__ . '/integrations.php';
+require_once __DIR__ . '/service-readers.php';
 require_once __DIR__ . '/acquisition.php';
+require_once __DIR__ . '/vendor-advisories.php';
 require_once __DIR__ . '/vulnerabilities.php';
 require_once __DIR__ . '/providers.php';
+require_once __DIR__ . '/users.php';
 require_once __DIR__ . '/local.php';
 require_once __DIR__ . '/facts.php';
 require_once __DIR__ . '/rules.php';
