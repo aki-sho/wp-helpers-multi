@@ -101,7 +101,7 @@ function wphm_get_tool_definitions(): array {
         ],
         'security_check' => [
             'label' => 'セキュリティチェック',
-            'description' => '設定・更新情報・既存ログを読み取り、10種類の攻撃に関する確認結果を表示します。',
+            'description' => '設定・更新情報・既存ログ・選択した公開応答から、20項目の確認結果を表示します。',
             'icon' => 'dashicons-shield',
             'group' => 'management',
             'menu_title' => 'セキュリティチェック',

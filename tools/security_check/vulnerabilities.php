@@ -79,7 +79,7 @@ function wphm_sc_cached_lookup($record,array $target): bool {
     return true;
 }
 
-function wphm_sc_risk_cwes(): array { return ['CWE-89','CWE-79','CWE-352','CWE-78','CWE-94','CWE-434','CWE-22','CWE-23','CWE-36']; }
+function wphm_sc_risk_cwes(): array { return array_keys(wphm_sc_cwe_mapping()); }
 
 /** Bounded batches; failed requests are remembered for this run, so continuation always advances. */
 function wphm_sc_vulnerabilities(array $inventory,bool $refresh,string $run=''): array {

@@ -158,9 +158,12 @@ function wphm_sc_collect(bool $refresh = false, bool $continuing = false, array 
     $file_edit_disabled = (defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT) || (defined('DISALLOW_FILE_MODS') && DISALLOW_FILE_MODS);
     $file_uploads = ini_get('file_uploads');
     $inventory = wphm_sc_inventory();
-    $fingerprint=hash('sha256',wp_json_encode([WPHM_VERSION,(string)$wp_version,PHP_VERSION,$inventory,get_option('active_plugins',[]),get_site_option('active_sitewide_plugins',[]),get_stylesheet(),get_option('wphm_sc_revision',''),$selection,$options['updates'],$options['vulnerabilities'],$options['vendor'],wphm_sc_users_signature()]));
+    $fingerprint=hash('sha256',wp_json_encode([WPHM_VERSION,(string)$wp_version,PHP_VERSION,$inventory,get_option('active_plugins',[]),get_site_option('active_sitewide_plugins',[]),get_stylesheet(),get_option('wphm_sc_revision',''),$selection,$options['updates'],$options['vulnerabilities'],$options['vendor'],$options['public_http'],home_url('/'),site_url('/'),wphm_sc_users_signature()]));
     if($continuing && (!is_string($context['fingerprint'] ?? null) || !hash_equals($context['fingerprint'],$fingerprint))) throw new WPHM_Security_Check_Exception('照合中に製品・設定が変更されました。再チェックしてください。');
+    $public_response=wphm_sc_public_facts($refresh && !$continuing);
     $facts = [
+        'public_response'=>$public_response,
+        'posture'=>wphm_sc_posture_facts($inventory,$selection['wordpress']),
         'registration' => !is_multisite() && (bool)get_option('users_can_register', false),
         'raw_html' => !is_multisite() && !(defined('DISALLOW_UNFILTERED_HTML') && DISALLOW_UNFILTERED_HTML) && $role && $role->has_cap('unfiltered_html') && ($role->has_cap('edit_posts') || $role->has_cap('edit_pages')),
         'raw_upload' => !is_multisite() && $role && $role->has_cap('unfiltered_upload') && $role->has_cap('upload_files'),

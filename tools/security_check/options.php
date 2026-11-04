@@ -7,13 +7,13 @@ function wphm_sc_options(): array {
     $out=array_merge($defaults,is_array($saved)?array_intersect_key($saved,$defaults):[]);
     $out['vendor_sources']=is_array($saved) && is_array($saved['vendor_sources'] ?? null)?array_slice($saved['vendor_sources'],0,20,true):[];
     $out['gh_secret']=is_array($saved) && is_string($saved['gh_secret'] ?? null)?$saved['gh_secret']:'';
-    $out['vendor']=false;
+    $out['vendor']=false; $out['public_http']=false;
     foreach(['cf_zone','cf_secret','evidence','server_provider','server_connection','server_secret','edge_provider','edge_connection','edge_secret'] as $key) if(!is_string($out[$key])) $out[$key]=$defaults[$key];
     foreach(['uploads_execution','vendor_patches'] as $key) if(!is_string($out[$key]) || !in_array($out[$key],['unknown','yes','no'],true)) $out[$key]='unknown';
     $out['vulnerabilities']=in_array($out['vulnerabilities'],[true,1,'1'],true);
     $out['updates']=in_array($out['updates'],[true,1,'1'],true);
     $preferences=get_user_option('wphm_sc_sources',get_current_user_id());
-    if(is_array($preferences)) foreach(['updates','vulnerabilities','vendor'] as $key) if(isset($preferences[$key]) && is_bool($preferences[$key])) $out[$key]=$preferences[$key];
+    if(is_array($preferences)) foreach(['updates','vulnerabilities','vendor','public_http'] as $key) if(isset($preferences[$key]) && is_bool($preferences[$key])) $out[$key]=$preferences[$key];
     $out['attested_at']=is_numeric($out['attested_at'])?max(0,(int)$out['attested_at']):0;
     foreach(wphm_sc_threshold_bounds() as $key=>$bound) $out[$key]=is_scalar($out[$key]) && ctype_digit((string)$out[$key]) ? max($bound[0],min($bound[1],(int)$out[$key])) : $defaults[$key];
     return $out;
@@ -80,7 +80,7 @@ function wphm_sc_save_options(array $input): void {
 function wphm_sc_save_sources(array $input): void {
     if(!wphm_sc_allowed()) throw new WPHM_Security_Check_Exception('この設定を変更する権限がありません。');
     $old=wphm_sc_options(); $next=$old; $selection=[];
-    foreach(array_merge(array_keys(wphm_sc_source_names()),['updates','vulnerabilities','vendor']) as $key) {
+    foreach(array_merge(array_keys(wphm_sc_source_names()),['updates','vulnerabilities','vendor','public_http']) as $key) {
         $field='source_'.$key;
         if(isset($input[$field]) && (!is_string($input[$field]) || $input[$field]!=='1')) throw new WPHM_Security_Check_Exception('取得元の選択形式が不正です。');
         $selection[$key]=isset($input[$field]);

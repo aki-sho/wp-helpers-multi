@@ -154,13 +154,13 @@ try {
     $_POST=$_REQUEST=$all_off+['nonce'=>wp_create_nonce('wphm_security_check'),'operation'=>'recheck'];
     ob_start(); try { wphm_sc_ajax(); } catch(SecurityCheckExit $exit) {} $source_reply=json_decode(ob_get_clean(),true);
     sc_same(true,$source_reply['success'],'AJAX source form saves and acquires in one request');
-    sc_same(10,substr_count($source_reply['data']['html'],'class="wphm-sc-accordion"'),'AJAX source response includes all disclosures');
+    sc_same(20,substr_count($source_reply['data']['html'],'class="wphm-sc-accordion"'),'AJAX source response includes all disclosures');
     sc_same(false,strpos(wp_json_encode($source_reply),str_repeat('c',32))!==false,'AJAX connection state never includes secret values');
     $_SERVER['REQUEST_METHOD']='GET'; $_POST=$_REQUEST=[];
     $safe_page=$disabled_sources; $safe_page['refreshed']=true;
     ob_start(); wphm_sc_report_html($safe_page); $html=ob_get_clean();
-    sc_same(10,substr_count($html,'class="wphm-sc-accordion"'),'all ten items are native disclosures');
-    sc_same(10,substr_count($html,'<h3>確認項目</h3>'),'all ten items have checks');
+    sc_same(20,substr_count($html,'class="wphm-sc-accordion"'),'all twenty items are native disclosures');
+    sc_same(20,substr_count($html,'<h3>確認項目</h3>'),'all twenty items have checks');
     sc_same(false,strpos($html,'現在の状態')!==false,'removed current-state field absent');
     sc_same(false,strpos($html,'判定理由')!==false,'removed reason field absent');
     sc_same(false,strpos($html,'wphm-sc-coverage')!==false,'only categorical risk bars retained');

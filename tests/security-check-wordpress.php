@@ -76,6 +76,9 @@ try {
     if ($mode === 'multisite') {
         require __DIR__ . '/security-check-multisite.php';
         echo "PASS: {$checks} native multisite security-check assertions.\n";
+    } elseif ($mode === 'twenty') {
+        require __DIR__ . '/security-check-twenty.php';
+        echo "PASS: {$checks} native twenty-item security assertions.\n";
     } elseif ($mode !== 'main') {
         sc_same(false, function_exists('wphm_sc_collect'), $mode . ': checker module not loaded');
         sc_same(false, has_action('wp_ajax_wphm_security_check'), $mode . ': no AJAX hook');
@@ -106,7 +109,7 @@ try {
         sc_same(0, count($calls), 'local log check never sends HTTP');
         $local = wphm_sc_collect();
         sc_same(0, count($calls), 'initial check uses saved update data without HTTP');
-        sc_same(10, count($local['items']), 'all ten attacks represented');
+        sc_same(20, count($local['items']), 'all twenty checks represented');
         $items = array_column($local['items'], null, 'id');
         foreach (['brute_force', 'credential_stuffing', 'ddos'] as $key) sc_same('unknown', $items[$key]['level'], 'insufficient evidence never guessed: ' . $key);
         foreach (['sql_injection','xss','csrf','directory_traversal'] as $key) sc_same('low',$items[$key]['level'],'low is scoped to the exact reviewed plugin files: '.$key);
@@ -189,7 +192,7 @@ try {
         file_put_contents($root . '/.wphm-test/security-check-page.html', $page);
         ob_start(); wphm_render_dashboard(); $dashboard = ob_get_clean();
         sc_same(true, strpos($dashboard, 'wphm_tools[security_check]') !== false, 'dashboard toggle rendered');
-        sc_same(10, substr_count($page, 'data-check='), 'ten rows rendered');
+        sc_same(20, substr_count($page, 'data-check='), 'twenty rows rendered');
         foreach (array_keys(wphm_sc_levels()) as $level) sc_same(true, strpos($page, 'wphm-sc-' . $level) !== false, 'four states supported by UI');
         $calls = []; delete_transient('wphm_security_check_' . WPHM_VERSION . '_' . get_current_user_id());
         wphm_sc_report(); wphm_sc_report();
@@ -206,7 +209,7 @@ try {
         $nonce = wp_create_nonce('wphm_security_check');
         $reply = $ajax($nonce);
         sc_same(true, $reply['success'], 'valid AJAX recheck');
-        sc_same(10, substr_count($reply['data']['html'], 'data-check='), 'AJAX response contains all results');
+        sc_same(20, substr_count($reply['data']['html'], 'data-check='), 'AJAX response contains all results');
         file_put_contents($root . '/.wphm-test/security-check-ajax.json', wp_json_encode($reply));
         $before = count($calls); sc_same(null, $ajax('invalid'), 'invalid nonce denied');
         sc_same($before, count($calls), 'invalid nonce cannot initiate metadata requests');
@@ -241,6 +244,7 @@ try {
         require __DIR__ . '/security-check-extended.php';
         require __DIR__ . '/security-check-acquisition.php';
         require __DIR__ . '/security-check-followups.php';
+        require __DIR__ . '/security-check-twenty.php';
         echo "PASS: {$checks} native WordPress security-check assertions.\n";
     }
     }

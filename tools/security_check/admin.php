@@ -13,7 +13,7 @@ function wphm_sc_report(bool $refresh = false, string $operation = 'recheck', st
     if (is_string($revision) && $revision !== '') $key .= '_' . substr(hash('sha256',$revision),0,16);
     $preferences=wphm_sc_options();
     $key.='_'.substr(wphm_sc_users_signature(),0,12);
-    $key.='_'.substr(hash('sha256',wp_json_encode([wphm_sc_source_selection(),$preferences['updates'],$preferences['vulnerabilities'],$preferences['vendor']])),0,12);
+    $key.='_'.substr(hash('sha256',wp_json_encode([wphm_sc_source_selection(),$preferences['updates'],$preferences['vulnerabilities'],$preferences['vendor'],$preferences['public_http'],home_url('/'),site_url('/')])),0,12);
     if (!$refresh) {
         $cached = get_transient($key);
         if (is_array($cached) && ($cached['schema'] ?? 0)===2 && isset($cached['checked_at'], $cached['items'], $cached['facts']) && is_int($cached['checked_at']) && $cached['checked_at'] >= time()-5*MINUTE_IN_SECONDS && $cached['checked_at'] <= time()) return $cached;
@@ -146,16 +146,21 @@ function wphm_sc_report_html(array $report): void {
         <div class="wphm-sc-total wphm-sc-<?php echo esc_attr($key); ?>"><span><?php echo esc_html($label); ?></span><strong><?php echo (int)$counts[$key]; ?><small>項目</small></strong></div>
     <?php endforeach; ?>
     </div>
-    <ol class="wphm-sc-results" aria-label="10種類の攻撃に関するチェック結果">
+    <div class="wphm-sc-filters" hidden>
+        <label>表示 <select data-sc-filter="group" aria-label="項目の分類"><option value="all">すべての項目</option><?php foreach(wphm_sc_groups() as $key=>$label): ?><option value="<?php echo esc_attr($key); ?>"><?php echo esc_html($label); ?></option><?php endforeach; ?></select></label>
+        <label><select data-sc-filter="status" aria-label="確認結果の絞り込み"><option value="all">すべての結果</option><option value="review">要確認・未確認</option><option value="unknown">未確認のみ</option><option value="high">高リスクのみ</option></select></label>
+        <span data-sc-filter-count role="status" aria-live="polite"></span><button type="button" class="button-link" data-sc-collapse>詳細を閉じる</button>
+    </div>
+    <ol class="wphm-sc-results" aria-label="20項目のセキュリティチェック結果">
     <?php foreach ($report['items'] as $index => $item): $level = $item['level']; $size = ['low' => 33.333, 'medium' => 66.667, 'high' => 100, 'unknown' => 100][$level]; ?>
-        <li class="wphm-sc-item wphm-sc-<?php echo esc_attr($level); ?>" data-check="<?php echo esc_attr($item['id']); ?>">
+        <li class="wphm-sc-item wphm-sc-<?php echo esc_attr($level); ?>" data-check="<?php echo esc_attr($item['id']); ?>" data-sc-group="<?php echo esc_attr($item['group'] ?? ''); ?>" data-sc-level="<?php echo esc_attr($level); ?>">
             <details class="wphm-sc-accordion"><summary><div class="wphm-sc-item-title"><h2><span class="wphm-sc-number"><?php echo (int)$index + 1; ?></span><?php echo esc_html($item['name']); ?></h2></div>
             <div class="wphm-sc-bar" <?php if ($level !== 'unknown'): ?>role="meter" aria-label="<?php echo esc_attr($item['name'] . 'の確認範囲でのリスク'); ?>" aria-valuemin="1" aria-valuemax="3" aria-valuenow="<?php echo ['low' => 1, 'medium' => 2, 'high' => 3][$level]; ?>" aria-valuetext="<?php echo esc_attr($levels[$level]); ?>"<?php else: ?>role="img" aria-label="リスク未確認"<?php endif; ?>><span style="width:<?php echo esc_attr((string)$size); ?>%"><small><?php echo esc_html($levels[$level]); ?></small></span></div>
             </summary><div class="wphm-sc-item-body">
             <?php wphm_sc_item_sources_html($item); ?>
             <?php if(!empty($item['checks'])): ?>
             <h3>確認項目</h3>
-            <ul class="wphm-sc-checks"><?php foreach($item['checks'] as $check): $places=[]; foreach($check['sources'] ?? ['wordpress'] as $source) if(isset(wphm_sc_source_names()[$source])) $places[]=wphm_sc_source_names()[$source]; $origin=(empty($check['source_confirmed'])?'確認先：':'').implode('・',$places).(!empty($check['reference'])?'／参考':''); ?><li><div><strong><?php echo esc_html($check['label']); ?><span class="wphm-sc-origin">（<?php echo esc_html($origin); ?>）</span></strong><span class="wphm-sc-check-badge wphm-sc-check-<?php echo esc_attr($check['status']); ?>"><?php echo esc_html($labels[$check['status']] ?? '未確認'); ?></span></div><span><?php echo esc_html($check['value']); ?></span><?php if($check['help']!==''): ?><small><?php echo esc_html($check['help']); ?></small><?php endif; ?></li><?php endforeach; ?></ul>
+            <ul class="wphm-sc-checks"><?php foreach($item['checks'] as $check): $places=[]; foreach($check['sources'] ?? ['wordpress'] as $source) if(isset(wphm_sc_source_names()[$source])) $places[]=wphm_sc_source_names()[$source]; $origin=(empty($check['source_confirmed'])?'確認先：':'').implode('・',$places).(!empty($check['public_response'])?'／公開応答・設定元は未特定':'').(!empty($check['reference'])?'／参考':''); ?><li><div><strong><?php echo esc_html($check['label']); ?><span class="wphm-sc-origin">（<?php echo esc_html($origin); ?>）</span></strong><span class="wphm-sc-check-badge wphm-sc-check-<?php echo esc_attr($check['status']); ?>"><?php echo esc_html($labels[$check['status']] ?? '未確認'); ?></span></div><span><?php echo esc_html($check['value']); ?></span><?php if($check['help']!==''): ?><small><?php echo esc_html($check['help']); ?></small><?php endif; ?></li><?php endforeach; ?></ul>
             <a class="wphm-sc-settings-link" href="#wphm-sc-settings">この項目の設定・確認方法を見る</a>
             <?php endif; ?>
             </div></details>
@@ -184,7 +189,7 @@ function wphm_sc_render(): void {
     ?>
     <section class="wphm-panel wphm-sc-intro">
         <h2>調べる場所を選ぶ</h2>
-        <p>1〜10で共通の取得元です。既存の設定・記録を読み取り、判断材料が足りない項目は「未確認」と表示します。防御設定そのものを変更する操作ではありません。</p>
+        <p>1〜20で共通の取得元です。項目を開くと確認内容と設定場所を表示します。判断材料が足りない項目は「未確認」とし、防御設定そのものは変更しません。</p>
         <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=wphm-security-check')); ?>" id="wphm-sc-form">
             <?php wp_nonce_field('wphm_security_check', 'nonce'); ?>
             <input type="hidden" name="wphm_sc_action" value="recheck">

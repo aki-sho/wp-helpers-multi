@@ -10,6 +10,31 @@
   const pause = document.getElementById('wphm-sc-pause');
   const resume = document.getElementById('wphm-sc-resume');
   let run = '', busy = false, paused = true, timer = null, controller = null, alive = true, generation = 0;
+  let groupFilter = 'all', statusFilter = 'all';
+  function filterResults() {
+    const toolbar = report.querySelector('.wphm-sc-filters');
+    if (!toolbar) return;
+    toolbar.hidden = false;
+    toolbar.querySelector('[data-sc-filter="group"]').value = groupFilter;
+    toolbar.querySelector('[data-sc-filter="status"]').value = statusFilter;
+    const rows = report.querySelectorAll('.wphm-sc-item[data-check]');
+    let visible = 0;
+    rows.forEach(row => {
+      const groupMatches = groupFilter === 'all' || row.dataset.scGroup === groupFilter;
+      const statusMatches = statusFilter === 'all' || (statusFilter === 'review' ? row.dataset.scLevel !== 'low' : row.dataset.scLevel === statusFilter);
+      row.hidden = !(groupMatches && statusMatches);
+      if (!row.hidden) visible++;
+    });
+    toolbar.querySelector('[data-sc-filter-count]').textContent = `${visible} / ${rows.length}項目`;
+  }
+  report.addEventListener('change', event => {
+    if (event.target.matches('[data-sc-filter="group"]') && ['all', 'identity', 'processing', 'delivery', 'information'].includes(event.target.value)) groupFilter = event.target.value;
+    if (event.target.matches('[data-sc-filter="status"]') && ['all', 'review', 'unknown', 'high'].includes(event.target.value)) statusFilter = event.target.value;
+    filterResults();
+  });
+  report.addEventListener('click', event => {
+    if (event.target.closest('[data-sc-collapse]')) report.querySelectorAll('.wphm-sc-accordion, .wphm-sc-source-detail').forEach(node => { node.open = false; });
+  });
   const validRun = value => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
   const controls = () => {
     button.disabled = busy || (!!run && !paused);
@@ -49,6 +74,7 @@
       report.innerHTML = result.data.html;
       report.querySelectorAll('[data-check]').forEach(node => { const details = node.querySelector('details'); if (details) details.open = opened.includes(node.dataset.check); });
       report.querySelectorAll('.wphm-sc-details').forEach((node, index) => { node.open = !!extraOpened[index]; });
+      filterResults();
       if (operation === 'recheck') {
         form.querySelectorAll('input[type="password"]').forEach(node => {
           const source = node.name.replace('_token', '');
@@ -133,5 +159,6 @@
   const existing = report.querySelector('.wphm-sc-scan');
   if (existing && validRun(existing.dataset.run)) run = existing.dataset.run;
   connections();
+  filterResults();
   controls();
 })();

@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.11.0",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-11-04",
+  "sections": {
+    "description": "WordPress管理画面の便利ツール集。投稿データ、サイト内URL一覧、20項目のセキュリティチェック、検索・置換、ログ等を提供します。",
+    "changelog": "- v0.11.0 セキュリティチェックを20項目へ拡張。権限・セッション・SSRF・埋め込み制限・通信保護・公開ファイル・配布経路・転送・キャッシュ・CORSを追加。公開応答の任意確認、分類・結果の絞込み、取得元詳細の折りたたみを追加。通信先・TLS・転送・サイズ・保存情報を制限。"
+  }
+}

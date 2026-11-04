@@ -26,16 +26,17 @@ function wphm_sc_acquisition_fields_html(): void {
         echo '<div data-sc-reader-fields="'.esc_attr($source).'"><p data-sc-reader-help="'.esc_attr($source).'">'.esc_html($readers[$options[$source.'_provider']]['help'] ?? '').'</p><label>連携の接続ID<input type="text" name="'.esc_attr($source).'_connection" value="'.esc_attr($options[$source.'_connection']).'" maxlength="128" autocomplete="off"></label><label>読取りキー<input type="password" name="'.esc_attr($source).'_token" value="" maxlength="512" autocomplete="new-password" placeholder="'.($options[$source.'_secret']!==''?'保存済み（空欄で保持）':'未設定').'"></label><label><input type="checkbox" name="clear_'.esc_attr($source).'" value="1">保存した連携キーを削除する</label><p>サービスまたは接続IDを変更した場合はキーの再入力が必要です。キーはこのサイト内で暗号化して保存し、選択した連携先の読取りAPIだけに使用します。</p></div>';
         echo '<p class="description">標準対応サービスは取得方法から選べます。その他のサービスには対応する読取り連携の登録が必要です。全ホスティングの非公開設定を一律に取得する機能ではありません。任意URL・ファイルパスは指定せず、未対応・権限不足・未取得は未確認と表示します。</p></div></details>';
     }
-    echo '<div class="wphm-sc-reference-options"><strong>公開情報との照合</strong>';
+    echo '<div class="wphm-sc-reference-options"><strong>公開応答・公開情報の確認</strong>';
+    echo '<label><input type="checkbox" name="source_public_http" value="1" '.checked($options['public_http'],true,false).'>公開応答を確認する（ヘッダー・Cookieなど）</label>';
     foreach(['updates'=>'公式の更新情報と照合する','vulnerabilities'=>'既知脆弱性の公開情報と照合する'] as $key=>$label) echo '<label><input type="checkbox" name="source_'.esc_attr($key).'" value="1" '.checked($options[$key],true,false).'>'.esc_html($label).'</label>';
     wphm_sc_vendor_fields_html();
-    echo '<p class="description">WordPress.org・WPVulnerabilityへの製品名・版等の照会です。外部の防御サービスとは別です。WordPress内の調査を外しても、照合に必要な製品構成は取得します。接続情報や認証記録は送信しません。チェックや設定欄の開閉だけでは通信しません。</p></div>';
+    echo '<p class="description">公開応答は、このサイトの公開トップ・標準ログインページへの未ログインGETです。既存のCookie・認証キーは送らず、本文やCookieの値は保存しません。製品情報の照合はWordPress.org・WPVulnerability等への照会です。接続情報や認証記録は送信しません。選択後は再チェックで取得します。</p></div>';
 }
 
 function wphm_sc_item_sources_html(array $item): void {
     if(empty($item['sources'])) return;
     $labels=wphm_sc_source_labels();
-    echo '<div class="wphm-sc-source-results" aria-label="取得元ごとの状況">';
+    echo '<details class="wphm-sc-source-detail"><summary>設定・記録の取得元の状況</summary><div class="wphm-sc-source-results" aria-label="取得元ごとの状況">';
     foreach($item['sources'] as $source=>$info) {
         $status=$info['status'];
         echo '<div><strong>'.esc_html(wphm_sc_source_names()[$source]).'</strong><span class="wphm-sc-source-status">'.esc_html($labels[$status] ?? '未確認').'</span><p>'.esc_html(wphm_sc_source_reason($info)).'</p>';
@@ -44,5 +45,5 @@ function wphm_sc_item_sources_html(array $item): void {
         if($source!=='wordpress' && in_array($status,['setup','pending','unsupported','error','skip'],true)) echo '<a href="#wphm-sc-connect-'.esc_attr($source).'" class="wphm-sc-source-link" data-sc-connect="'.esc_attr($source).'">接続設定を確認</a>';
         echo '</div>';
     }
-    echo '</div>';
+    echo '</div></details>';
 }

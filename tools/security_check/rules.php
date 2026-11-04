@@ -84,5 +84,6 @@ function wphm_sc_assess(array $facts): array {
     foreach($vulns['cwe'] ?? [] as $cwe) if(isset($mapping[$cwe])) { $id=$mapping[$cwe]; $items[$id]['level']='high'; $items[$id]['reason']='影響版候補に該当する既知脆弱性の分類があります。表示件数の上限外も含めた判定です。製品と成立条件を照合結果で確認してください。'; }
     $items=wphm_sc_focus_assessment($facts,$items);
     if(isset($facts['acquisition'])) $items=wphm_sc_source_assessment($facts,$items);
+    $items=wphm_sc_extended_assessment($facts,$items);
     return array_values($items);
 }
