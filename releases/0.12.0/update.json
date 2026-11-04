@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.12.0",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-11-05",
+  "sections": {
+    "description": "WordPress管理画面の便利ツール集。投稿データ、サイト内URL一覧、20項目のセキュリティチェック、検索・置換、ログ等を提供します。",
+    "changelog": "- v0.12.0 WordPress設置先の自動取得、設定・ファイル・保存コードの分割読取り、根拠に応じた確認先、20項目の設定状態の内訳表示を追加。未選択・未対応・権限不足を区別し、既存の防御設定は変更しません。"
+  }
+}

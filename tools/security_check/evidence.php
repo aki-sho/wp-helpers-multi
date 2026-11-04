@@ -5,36 +5,33 @@ function wphm_sc_evidence_html(array $facts): void {
     $telemetry=$facts['telemetry'] ?? []; $identity=$facts['identity'] ?? []; $files=$facts['files'] ?? []; $audit=$facts['audit'] ?? []; $vulns=$facts['vulnerabilities'] ?? []; $cf=$facts['cloudflare'] ?? []; $server=$facts['server'] ?? [];
     echo '<details class="wphm-panel wphm-sc-details wphm-sc-evidence"><summary>取得した情報・確認できなかった範囲</summary>';
     $lines=[];
-    if (!empty($telemetry['available'])) {
+    $wordpress=!empty($facts['acquisition']['selected']['wordpress']); $scopes=wphm_sc_reading_scopes();
+    if (!$wordpress) $lines[]='WordPress内は未選択のため、認証・通信記録や設定を今回は参照していません。';
+    elseif (!empty($telemetry['available'])) {
         $lines[]='独立集計：開始 ' . ($telemetry['started'] ? wphm_format_timestamp($telemetry['started']) : '未確認') . '。観測された分数 ' . $telemetry['minutes'] . '分、最初 ' . ($telemetry['from'] ? wphm_format_timestamp($telemetry['from']) : '未計測') . '、最後 ' . ($telemetry['to'] ? wphm_format_timestamp($telemetry['to']) : '未計測') . '。';
         $lines[]='保存枠は最大1,568行、各計数は1分60,000まで。上限到達：' . ($telemetry['saturated'] ? 'あり' : 'なし') . '。入力分類の省略・切詰め：' . $telemetry['truncated'] . '件。認証集中は64共有枠の概数です。WordPress到達前の通信と停止期間は観測できません。';
-    } else $lines[]='独立集計：未計測。初回の画面表示後、以後のイベントを集計します。';
+    } else $lines[]='独立集計：記録を取得できていません。集計表・DBの読取り権限を確認します。記録の0件とは区別します。';
     $logs=$facts['logs'];
     $lines[]='従来ログの抽出：' . ($logs['available'] ? $logs['sampled'] . '件、最初 ' . (!empty($logs['from']) ? wphm_format_timestamp($logs['from']) : '未計測') . '、最後 ' . (!empty($logs['to']) ? wphm_format_timestamp($logs['to']) : '未計測') : '未計測') . '。ボット除外・記録頻度制限・抽出上限のあるログです。';
-    if ($identity) {
+    if ($identity && $wordpress && $scopes['settings']) {
         $lines[]='利用者は管理者を優先し、1処理200人まで分割確認します。画面を閉じると続行を止め、未完了は未確認を維持します。役割・関連する認証メタ情報の変更で過去の集計を無効化します。';
         $lines[]='認証イベントは標準の失敗・wp_login・アプリケーションパスワードのフックから集計します。XML-RPCの成功・SSO・独自認証など、全経路の最終ログイン成否は未確認です。';
         $lines[]='既存利用者 ' . $identity['checked'] . '人を確認。人数上限：' . ($identity['limited'] ? '到達（残りは未確認）' : '未到達') . '。XML-RPC認証設定 ' . ($identity['xmlrpc_auth'] ? '有効' : '無効') . '、アプリケーションパスワード受付 ' . ($identity['application_passwords']===null ? '未確認' : ($identity['application_passwords'] ? '有効' : '無効')) . '、確認範囲の登録利用者 ' . $identity['app_password_users'] . '人。2FAの全認証経路への強制は未確認です。';
         foreach ($identity['roles'] as $role) $lines[]='役割 ' . $role['name'] . '：' . implode(', ',$role['capabilities']) . '。役割の設定値と利用者の実効権限は区別しています。';
     }
-    if ($files) {
-        $lines[]='アップロード先の読取り：' . min(500,$files['scanned']) . '項目、スクリプト形式 ' . $files['scripts'] . '件、上限・読取り不能・リンク除外 ' . ($files['limited'] ? 'あり' : 'なし') . '。最大40ディレクトリ・500項目で停止し、ファイル内容は読みません。';
+    if ($files && $wordpress && $scopes['settings']) {
+        if (!empty($files['scan_available'])) $lines[]='アップロード先の形式確認：' . min(500,$files['scanned']) . '項目、スクリプト形式 ' . $files['scripts'] . '件、上限・読取り不能・リンク除外 ' . ($files['limited'] ? 'あり' : 'なし') . '。最大40ディレクトリ・500項目で停止します。形式確認ではファイル本文を解析せず、.htaccessの記述候補を別に参照します。';
+        else $lines[]='アップロード先のファイル形式確認は未実施・取得不能です。0件を確認したとは扱いません。';
         $lines[]='現在の利用者に許可された実行形式：' . (empty($files['types_checked']) ? '取得失敗' : ($files['executable_types'] ? implode(', ',$files['executable_types']) : '確認した形式に該当なし')) . '。.htaccessの禁止記述候補 ' . ($files['rule_hint'] ? 'あり' : '未確認') . '。記述の存在からサーバーの実効設定は推測しません。';
         $lines[]='登録された公開AJAX ' . $files['public_ajax'] . '件（アップロード機能かは未監査）。有効な既知のコード追加機能：' . ($files['code_tools'] ? implode(', ',$files['code_tools']) : '検出なし・独自機能は未確認') . '。';
     }
-    if ($audit) {
+    if ($audit && $wordpress && $scopes['plugins']) {
         $lines[]='本プラグインの配布時監査：' . ($audit['known'] ? '対象ファイル一致' : '未確認・不一致') . '。対象 ' . $audit['files'] . '、不一致 ' . $audit['changed'] . 'ファイル。';
         foreach ($audit['groups'] ?? [] as $group) if (is_string($group)) $lines[]=$group;
     }
-    if ($server) {
-        $valid=$server['attested_at']>0 && $server['attested_at']<=time()+60 && $server['attested_at']>=time()-7*DAY_IN_SECONDS;
-        $labels=['unknown'=>'未確認','yes'=>'はい','no'=>'いいえ'];
-        $lines[]='管理者申告：アップロード先の実行禁止 ' . ($labels[$server['uploads_execution']] ?? '未確認') . '、提供元PHP修正 ' . ($labels[$server['vendor_patches']] ?? '未確認') . '。' . ($valid ? '申告日時 ' . wphm_format_timestamp($server['attested_at']) : '未申告または期限切れ') . '。自動検証の判定には置き換えません。';
-        if ($server['evidence']) $lines[]='申告の根拠：' . $server['evidence'];
-    }
     $php=$facts['updates']['php'];
     $lines[]='PHPサポートの参照元：' . ($php['source'] ?? '未確認') . '。取得日時 ' . (!empty($php['checked_at']) ? wphm_format_timestamp($php['checked_at']) : '未確認') . '。';
-    if ($cf) {
+    if ($cf && !empty($facts['acquisition']['selected']['edge']) && wphm_sc_options()['edge_provider']==='cloudflare') {
         $lines[]='Cloudflare：' . $cf['state'] . '。取得日時 ' . ($cf['checked_at'] ? wphm_format_timestamp($cf['checked_at']) : '未確認') . '。統計が取得できてもDDoS耐性全体は未確認です。';
         $lines[]='WAF遮断記録：' . (($cf['blocked'] ?? null)===null ? '取得失敗・未設定' : '最大100件の直近サンプル中 '.$cf['blocked'].'件／取得 '.$cf['events'].'件') . '。取得期間は直近の完了した24時間です。個々のIP・URL・利用者情報は取得・保存しません。';
     }

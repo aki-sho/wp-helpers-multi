@@ -9,6 +9,9 @@
   const error = document.getElementById('wphm-sc-error');
   const pause = document.getElementById('wphm-sc-pause');
   const resume = document.getElementById('wphm-sc-resume');
+  const detailDialog = document.getElementById('wphm-sc-dialog');
+  const detailBody = document.getElementById('wphm-sc-dialog-body');
+  let showReadingResults = false;
   let run = '', busy = false, paused = true, timer = null, controller = null, alive = true, generation = 0;
   let groupFilter = 'all', statusFilter = 'all';
   function filterResults() {
@@ -21,7 +24,7 @@
     let visible = 0;
     rows.forEach(row => {
       const groupMatches = groupFilter === 'all' || row.dataset.scGroup === groupFilter;
-      const statusMatches = statusFilter === 'all' || (statusFilter === 'review' ? row.dataset.scLevel !== 'low' : row.dataset.scLevel === statusFilter);
+      const statusMatches = statusFilter === 'all' || Number(row.dataset[statusFilter === 'off' ? 'scOff' : 'scUnknown']) > 0;
       row.hidden = !(groupMatches && statusMatches);
       if (!row.hidden) visible++;
     });
@@ -29,15 +32,16 @@
   }
   report.addEventListener('change', event => {
     if (event.target.matches('[data-sc-filter="group"]') && ['all', 'identity', 'processing', 'delivery', 'information'].includes(event.target.value)) groupFilter = event.target.value;
-    if (event.target.matches('[data-sc-filter="status"]') && ['all', 'review', 'unknown', 'high'].includes(event.target.value)) statusFilter = event.target.value;
+    if (event.target.matches('[data-sc-filter="status"]') && ['all', 'off', 'unknown'].includes(event.target.value)) statusFilter = event.target.value;
     filterResults();
   });
   report.addEventListener('click', event => {
-    if (event.target.closest('[data-sc-collapse]')) report.querySelectorAll('.wphm-sc-accordion, .wphm-sc-source-detail').forEach(node => { node.open = false; });
+    if (event.target.closest('[data-sc-collapse]')) report.querySelectorAll('.wphm-sc-accordion, .wphm-sc-recording, .wphm-sc-observations').forEach(node => { node.open = false; });
   });
   const validRun = value => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
   const controls = () => {
     button.disabled = busy || (!!run && !paused);
+    form.querySelectorAll('[data-sc-read-wordpress]').forEach(node => { node.disabled = button.disabled; });
     pause.hidden = !run || paused;
     resume.hidden = !run || !paused;
     resume.disabled = busy;
@@ -50,7 +54,7 @@
     timer = null; busy = true; controls(); error.textContent = '';
     const previous = !!report.querySelector('[data-check]');
     const sequence = generation;
-    status.textContent = operation === 'continue' ? '残りの製品を照合しています…' : '設定・ログ・公式の更新情報を確認しています…';
+    status.textContent = operation === 'continue' ? 'ファイル・利用者・製品情報の残りを確認しています…' : '選択した設定・ファイル・公開情報を確認しています…';
     const currentController = new AbortController();
     controller = currentController;
     const timeout = setTimeout(() => currentController.abort(), 35000);
@@ -66,14 +70,20 @@
       }
       const scan = result.data.scan;
       const usersPending = scan && scan.users_pending === true;
-      if (!scan || !Number.isInteger(scan.pending) || scan.pending < 0 || scan.pending > 500 || (scan.users_pending !== undefined && typeof scan.users_pending !== 'boolean') || typeof scan.auto !== 'boolean' || typeof scan.stopped !== 'boolean' || (scan.run !== '' && !validRun(scan.run)) || (scan.auto && ((!scan.pending && !usersPending) || !validRun(scan.run) || scan.stopped))) throw new Error('照合の進行情報を確認できませんでした。再チェックしてください。');
+      const readingPending = scan && scan.reading_pending === true;
+      if (!scan || !Number.isInteger(scan.pending) || scan.pending < 0 || scan.pending > 500 || (scan.users_pending !== undefined && typeof scan.users_pending !== 'boolean') || (scan.reading_pending !== undefined && typeof scan.reading_pending !== 'boolean') || typeof scan.auto !== 'boolean' || typeof scan.stopped !== 'boolean' || (scan.run !== '' && !validRun(scan.run)) || (scan.auto && ((!scan.pending && !usersPending && !readingPending) || !validRun(scan.run) || scan.stopped))) throw new Error('照合の進行情報を確認できませんでした。再チェックしてください。');
       if (!alive || sequence !== generation) return;
       // The capability/nonce protected endpoint escapes all displayed facts.
       const opened = Array.from(report.querySelectorAll('[data-check]')).filter(node => node.querySelector('details')?.open).map(node => node.dataset.check);
       const extraOpened = Array.from(report.querySelectorAll('.wphm-sc-details')).map(node => node.open);
+      const openedById = new Set(Array.from(report.querySelectorAll('details[id][open]')).map(node => node.id));
+      if (detailDialog?.open) detailDialog.close();
+      if (detailBody) detailBody.replaceChildren();
       report.innerHTML = result.data.html;
       report.querySelectorAll('[data-check]').forEach(node => { const details = node.querySelector('details'); if (details) details.open = opened.includes(node.dataset.check); });
       report.querySelectorAll('.wphm-sc-details').forEach((node, index) => { node.open = !!extraOpened[index]; });
+      report.querySelectorAll('details[id]').forEach(node => { if (openedById.has(node.id)) node.open = true; });
+      if (showReadingResults) { const reading = document.getElementById('wphm-sc-reading-results'); if (reading) { reading.open = true; if (operation === 'recheck') reading.scrollIntoView({ behavior: 'auto', block: 'start' }); } }
       filterResults();
       if (operation === 'recheck') {
         form.querySelectorAll('input[type="password"]').forEach(node => {
@@ -85,13 +95,13 @@
       }
       run = scan.auto ? scan.run : '';
       if (run && !paused) {
-        status.textContent = `未照合 ${scan.pending}製品。${usersPending ? '利用者の確認も分割して続けます。' : ''}自動で続きを確認します…`;
+        status.textContent = `未照合 ${scan.pending}製品。${usersPending ? '利用者の確認を続けます。' : ''}${readingPending ? 'WordPress内のファイルを分割読取り中です。' : ''}自動で続きを確認します…`;
         schedule();
       } else if (run) {
         status.textContent = '自動照合を一時停止しました。「照合を続ける」で再開できます。';
       } else {
         paused = true;
-        status.textContent = scan.stopped ? `処理上限で停止しました。未照合 ${scan.pending}製品。${usersPending ? '利用者の残りもあります。' : ''}再チェックで続行できます。` : '再チェックが完了しました。取得失敗・確認範囲外の項目は結果内で確認してください。';
+        status.textContent = scan.stopped ? `処理上限で停止しました。未照合 ${scan.pending}製品。${usersPending ? '利用者の残りもあります。' : ''}${readingPending ? 'ファイルの残りも未確認です。' : ''}再チェックで更新できます。` : '再チェックが完了しました。未確認の理由は各項目の「確認先」で確認できます。';
       }
     } catch (failure) {
       if (!alive || sequence !== generation) return;
@@ -106,6 +116,7 @@
   }
   form.addEventListener('submit', event => {
     event.preventDefault(); if (button.disabled) return;
+    showReadingResults = !!event.submitter?.matches('[data-sc-read-wordpress]');
     clearTimeout(timer); run = ''; paused = false; request('recheck');
   });
   pause.addEventListener('click', () => {
@@ -115,12 +126,27 @@
   });
   resume.addEventListener('click', () => { if (!run || busy) return; paused = false; controls(); status.textContent = '照合を再開します…'; schedule(); });
   document.addEventListener('click', event => {
+    const detailLink = event.target.closest && event.target.closest('[data-sc-open-control]');
+    if (detailLink && detailDialog && detailBody && typeof detailDialog.showModal === 'function') {
+      const source = document.getElementById(detailLink.dataset.scOpenControl);
+      if (source?.classList.contains('wphm-sc-control-source')) {
+        event.preventDefault();
+        const content = source.cloneNode(true); content.removeAttribute('id'); content.className = 'wphm-sc-control-content';
+        content.querySelector('.wphm-sc-nojs-close')?.remove();
+        detailBody.replaceChildren(content); if (detailDialog.open) detailDialog.close(); detailDialog.showModal();
+      }
+      return;
+    }
+    if (event.target.closest && event.target.closest('.wphm-sc-dialog-close')) detailDialog?.close();
+    const readingLink = event.target.closest && event.target.closest('[data-sc-reading-results]');
+    if (readingLink) { if (detailDialog?.open) detailDialog.close(); const target = document.getElementById('wphm-sc-reading-results'); if (target) target.open = true; }
     const evidence = event.target.closest && event.target.closest('a[href="#wphm-sc-vulnerabilities"]');
     if (evidence) { const panel = document.getElementById('wphm-sc-vulnerabilities'); if (panel) panel.open = true; }
     const target = event.target.closest && event.target.closest('.wphm-sc-settings-link');
     if (target) { const settings = document.getElementById('wphm-sc-settings'); if (settings) settings.open = true; }
     const link = event.target.closest && event.target.closest('[data-sc-connect]');
-    if (link && ['server', 'edge'].includes(link.dataset.scConnect)) {
+    if (link && ['wordpress', 'server', 'edge'].includes(link.dataset.scConnect)) {
+      if (detailDialog?.open) detailDialog.close();
       const source = link.dataset.scConnect;
       const checkbox = form.querySelector(`[data-sc-source="${source}"]`);
       if (checkbox && !checkbox.checked) { checkbox.checked = true; checkbox.dispatchEvent(new Event('change', { bubbles: true })); }
@@ -129,7 +155,7 @@
     }
   });
   function connections() {
-    for (const source of ['server', 'edge']) {
+    for (const source of ['wordpress', 'server', 'edge']) {
       const checkbox = form.querySelector(`[data-sc-source="${source}"]`);
       const panel = form.querySelector(`[data-sc-connection="${source}"]`);
       const picker = form.querySelector(`[data-sc-provider="${source}"]`);
@@ -153,6 +179,7 @@
     }
     status.textContent = '選択・入力の変更があります。「再チェック」で保存して取得します。現在の結果は前回の取得内容です。';
   });
+  if (detailDialog) detailDialog.addEventListener('click', event => { if (event.target === detailDialog) detailDialog.close(); });
   window.addEventListener('pagehide', () => {
     alive = false; paused = true; generation++; clearTimeout(timer); timer = null;
     if (controller) controller.abort();

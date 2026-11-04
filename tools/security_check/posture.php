@@ -78,7 +78,7 @@ function wphm_sc_distribution_facts(array $inventory): array {
     return $out;
 }
 
-function wphm_sc_posture_facts(array $inventory, bool $enabled): array {
+function wphm_sc_posture_facts(array $inventory, bool $enabled, bool $inspect_files=true): array {
     $out=['enabled'=>$enabled,'roles_known'=>false,'roles_limited'=>false,'privileged_basic_roles'=>0,'public_privileged_role'=>false,'session'=>['status'=>'pending','active'=>0,'expired'=>0,'latest_expiry'=>0],'cookie_policy'=>['known'=>false,'secure_auth'=>false,'secure_logged_in'=>false,'native_tokens'=>false],'public_files'=>['known'=>false,'checked'=>0,'candidates'=>0,'links'=>0],'debug_display'=>false,'http_blocked'=>null,'distribution'=>[]];
     if(!$enabled) return $out;
     $roles=wp_roles()->roles; $out['roles_known']=is_array($roles); $out['roles_limited']=count($roles)>100;
@@ -91,7 +91,7 @@ function wphm_sc_posture_facts(array $inventory, bool $enabled): array {
     }
     $out['session']=wphm_sc_session_facts();
     $out['cookie_policy']=wphm_sc_cookie_policy();
-    $out['public_files']=wphm_sc_public_file_facts();
+    if ($inspect_files) $out['public_files']=wphm_sc_public_file_facts();
     $out['debug_display']=defined('WP_DEBUG') && WP_DEBUG && (!defined('WP_DEBUG_DISPLAY') || WP_DEBUG_DISPLAY);
     $out['http_blocked']=defined('WP_HTTP_BLOCK_EXTERNAL') && WP_HTTP_BLOCK_EXTERNAL;
     $out['distribution']=wphm_sc_distribution_facts($inventory);

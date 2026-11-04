@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 function wphm_sc_public_row(): array {
-    return ['status'=>'pending','reason'=>'recheck','code'=>0,'https'=>false,'tls_verified'=>false,'cert_expires'=>0,'redirects'=>0,'external_redirect'=>false,'query_redirect'=>false,'html'=>false,'frame'=>'missing','csp'=>'absent','hsts'=>0,'hsts_present'=>false,'nosniff'=>false,'cors'=>'none','cors_credentials'=>false,'vary_origin'=>false,'cache'=>'unspecified','cache_age'=>0,'vary_cookie'=>false,'cookies'=>[],'cookies_limited'=>false,'referrer'=>'missing','server_disclosure'=>false];
+    return ['status'=>'pending','reason'=>'recheck','code'=>0,'https'=>false,'tls_verified'=>false,'cert_expires'=>0,'redirects'=>0,'external_redirect'=>false,'query_redirect'=>false,'html'=>false,'frame'=>'missing','frame_xfo'=>'missing','frame_csp'=>'missing','csp'=>'absent','hsts'=>0,'hsts_present'=>false,'nosniff'=>false,'cors'=>'none','cors_credentials'=>false,'vary_origin'=>false,'cache'=>'unspecified','cache_age'=>0,'vary_cookie'=>false,'cookies'=>[],'cookies_limited'=>false,'referrer'=>'missing','server_disclosure'=>false];
 }
 
 /** Only configured, credential-free HTTP origins on standard ports are eligible. */
@@ -42,6 +42,7 @@ function wphm_sc_public_summary($headers, string $url): array {
     $out['html']=(bool)preg_match('~^(?:text/html|application/xhtml\+xml)(?:\s*;|$)~i',$one('content-type'));
     $xfo=strtolower($one('x-frame-options'));
     $out['frame']=$xfo==='deny'?'deny':($xfo==='sameorigin'?'self':(isset($h['x-frame-options'])?'invalid':'missing'));
+    $out['frame_xfo']=$out['frame'];
     if(isset($h['content-security-policy'])) {
         $out['csp']='restricted'; $frames=[]; $script_policy=false;
         foreach($h['content-security-policy'] as $policy) {
@@ -61,6 +62,8 @@ function wphm_sc_public_summary($headers, string $url): array {
                 }
             }
         }
+        if(in_array('deny',$frames,true)) $out['frame_csp']='deny'; elseif(in_array('self',$frames,true)) $out['frame_csp']='self';
+        elseif($frames) $out['frame_csp']=in_array('invalid',$frames,true)?'invalid':'external';
         // Enforced policies intersect; a restrictive policy still applies beside another policy.
         if(in_array('deny',$frames,true)) $out['frame']='deny'; elseif(in_array('self',$frames,true)) $out['frame']='self';
         elseif($frames) $out['frame']=in_array('invalid',$frames,true)?'invalid':'external';
@@ -113,7 +116,7 @@ function wphm_sc_valid_public_row($row): bool {
     if(!is_array($row) || array_diff_key($row,$shape) || array_diff_key($shape,$row)) return false;
     foreach($shape as $key=>$value) if(gettype($row[$key])!==gettype($value)) return false;
     foreach(['code'=>599,'cert_expires'=>time()+20*YEAR_IN_SECONDS,'redirects'=>2,'hsts'=>2147483647,'cache_age'=>2147483647] as $key=>$max) if($row[$key]<0 || $row[$key]>$max) return false;
-    foreach(['status'=>['pending','skip','ok','error'],'frame'=>['missing','invalid','deny','self','external'],'csp'=>['absent','restricted','permissive','invalid'],'cors'=>['none','wildcard','same-site','external','null','invalid'],'cache'=>['unspecified','private','revalidate','shared'],'referrer'=>['missing','strict','loose','invalid']] as $key=>$allowed) if(!in_array($row[$key],$allowed,true)) return false;
+    foreach(['status'=>['pending','skip','ok','error'],'frame'=>['missing','invalid','deny','self','external'],'frame_xfo'=>['missing','invalid','deny','self'],'frame_csp'=>['missing','invalid','deny','self','external'],'csp'=>['absent','restricted','permissive','invalid'],'cors'=>['none','wildcard','same-site','external','null','invalid'],'cache'=>['unspecified','private','revalidate','shared'],'referrer'=>['missing','strict','loose','invalid']] as $key=>$allowed) if(!in_array($row[$key],$allowed,true)) return false;
     if($row['reason']!=='' && wphm_sc_read_code($row['reason'])!==$row['reason']) return false;
     if($row['status']==='ok' && ($row['code']!==200 || $row['reason']!=='' || ($row['https'] && !$row['tls_verified']))) return false;
     if(count($row['cookies'])>20) return false;

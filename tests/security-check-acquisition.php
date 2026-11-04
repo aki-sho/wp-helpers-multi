@@ -163,11 +163,13 @@ try {
     sc_same(20,substr_count($html,'<h3>確認項目</h3>'),'all twenty items have checks');
     sc_same(false,strpos($html,'現在の状態')!==false,'removed current-state field absent');
     sc_same(false,strpos($html,'判定理由')!==false,'removed reason field absent');
-    sc_same(false,strpos($html,'wphm-sc-coverage')!==false,'only categorical risk bars retained');
+    sc_same(true,strpos($html,'wphm-sc-distribution')!==false,'setting distribution bars rendered');
     sc_same(false,strpos($html,'（確認先：')!==false,'location tags do not mix in acquisition state');
-    sc_same(true,strpos($html,'（WordPress内）')!==false,'location tags use the requested exact wording');
+    sc_same(false,strpos($html,'（WordPress内）')!==false,'unselected WordPress is not a fixed location tag');
     $safe_page['items'][0]['checks'][0]['label']='<script>label</script>';
     $safe_page['items'][0]['checks'][0]['help']='<img src=x onerror=x>';
+    $safe_page['facts']['acquisition']['selected']['wordpress']=true;
+    $safe_page['facts']['reading']['features']['nonce_check']=[['source'=>'wordpress','group'=>'themes','file'=>'<script>label</script>','line'=>1,'conditional'=>false]];
     ob_start(); wphm_sc_report_html($safe_page); $html=ob_get_clean();
     sc_same(false,strpos($html,'<script>label')!==false,'check labels escaped');
     sc_same(false,strpos($html,'<img src=x')!==false,'check help escaped');
@@ -179,7 +181,7 @@ try {
     sc_same(true,in_array('server',$assessed['brute_force']['checks'][0]['sources'],true),'server limiter linked to actual check');
     sc_same(true,in_array('edge',$assessed['brute_force']['checks'][0]['sources'],true),'simultaneous external limiter preserved');
     sc_same(true,count($assessed['brute_force']['checks'][0]['sources'])>=2,'multiple successful source settings coexist');
-    foreach($assessed as $item) sc_same($item['level'],wphm_sc_checks_level($item['checks']),'every displayed graph follows its own checks');
+    foreach($assessed as $item) sc_same($item['level'],wphm_sc_checks_level($item['checks']),'legacy evidence follows its own checks');
     $before_options=serialize(get_option('wphm_sc_options')); $second_user->set_role('subscriber'); wp_set_current_user($second);
     $rejected=false; try { wphm_sc_save_sources($all_off); } catch(WPHM_Security_Check_Exception $error) { $rejected=true; }
     sc_same(true,$rejected,'subscriber cannot save sources or secrets');

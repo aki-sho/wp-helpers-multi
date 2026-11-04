@@ -153,18 +153,22 @@ function wphm_sc_collect(bool $refresh = false, bool $continuing = false, array 
     global $wp_version;
     $GLOBALS['wphm_sc_deadline'] = microtime(true) + ($continuing ? 12 : 25);
     $selection=wphm_sc_source_selection(); $options=wphm_sc_options();
+    $reading_scopes=wphm_sc_reading_scopes();
+    $local_settings=$selection['wordpress'] && $reading_scopes['settings'];
     wphm_sc_telemetry_schema();
     $role = get_role((string)get_option('default_role', 'subscriber'));
     $file_edit_disabled = (defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT) || (defined('DISALLOW_FILE_MODS') && DISALLOW_FILE_MODS);
     $file_uploads = ini_get('file_uploads');
     $inventory = wphm_sc_inventory();
-    $fingerprint=hash('sha256',wp_json_encode([WPHM_VERSION,(string)$wp_version,PHP_VERSION,$inventory,get_option('active_plugins',[]),get_site_option('active_sitewide_plugins',[]),get_stylesheet(),get_option('wphm_sc_revision',''),$selection,$options['updates'],$options['vulnerabilities'],$options['vendor'],$options['public_http'],home_url('/'),site_url('/'),wphm_sc_users_signature()]));
+    $fingerprint=hash('sha256',wp_json_encode([WPHM_VERSION,(string)$wp_version,PHP_VERSION,$inventory,get_option('active_plugins',[]),get_site_option('active_sitewide_plugins',[]),get_stylesheet(),get_option('wphm_sc_revision',''),$selection,$reading_scopes,$options['updates'],$options['vulnerabilities'],$options['vendor'],$options['public_http'],home_url('/'),site_url('/'),wphm_sc_users_signature()]));
     if($continuing && (!is_string($context['fingerprint'] ?? null) || !hash_equals($context['fingerprint'],$fingerprint))) throw new WPHM_Security_Check_Exception('照合中に製品・設定が変更されました。再チェックしてください。');
     $public_response=wphm_sc_public_facts($refresh && !$continuing);
     $facts = [
         'public_response'=>$public_response,
-        'posture'=>wphm_sc_posture_facts($inventory,$selection['wordpress']),
+        'posture'=>wphm_sc_posture_facts($inventory,$local_settings,$reading_scopes['config']),
         'registration' => !is_multisite() && (bool)get_option('users_can_register', false),
+        'registration_known' => !is_multisite(),
+        'environment' => wphm_sc_environment_facts($local_settings),
         'raw_html' => !is_multisite() && !(defined('DISALLOW_UNFILTERED_HTML') && DISALLOW_UNFILTERED_HTML) && $role && $role->has_cap('unfiltered_html') && ($role->has_cap('edit_posts') || $role->has_cap('edit_pages')),
         'raw_upload' => !is_multisite() && $role && $role->has_cap('unfiltered_upload') && $role->has_cap('upload_files'),
         'unfiltered_uploads' => defined('ALLOW_UNFILTERED_UPLOADS') && ALLOW_UNFILTERED_UPLOADS,
@@ -175,9 +179,10 @@ function wphm_sc_collect(bool $refresh = false, bool $continuing = false, array 
         'logs' => wphm_sc_log_facts($selection['wordpress']),
         'updates' => wphm_sc_update_facts($inventory, $refresh && !$continuing),
         'telemetry' => wphm_sc_telemetry_facts($selection['wordpress']),
-        'identity' => wphm_sc_identity_facts($selection['wordpress'],$refresh?($continuing?'continue':'recheck'):'view'),
-        'files' => wphm_sc_file_facts($inventory,$selection['wordpress']),
-        'audit' => $selection['wordpress']?wphm_sc_audit_facts():['known'=>false,'files'=>0,'changed'=>0,'version'=>'','groups'=>[]],
+        'identity' => wphm_sc_identity_facts($local_settings,$refresh?($continuing?'continue':'recheck'):'view'),
+        'files' => wphm_sc_file_facts($inventory,$local_settings,$reading_scopes['config']),
+        'reading' => wphm_sc_wordpress_reading($refresh,$continuing,$selection['wordpress']),
+        'audit' => $selection['wordpress'] && $reading_scopes['plugins']?wphm_sc_audit_facts():['known'=>false,'files'=>0,'changed'=>0,'version'=>'','groups'=>[]],
         'cloudflare' => $selection['edge'] && $options['edge_provider']==='cloudflare'?wphm_sc_cloudflare($refresh && !$continuing):['configured'=>false,'known'=>false,'checked_at'=>0,'requests'=>null,'waf_rules'=>null,'blocked'=>null,'events'=>null,'state'=>'今回未調査'],
     ];
     $options = wphm_sc_options();

@@ -51,12 +51,13 @@ function wphm_sc_save_options(array $input): void {
     $options['vulnerabilities'] = !empty($input['vulnerabilities']);
     $server_changed=false;
     foreach (['uploads_execution', 'vendor_patches'] as $key) {
-        $value = $input[$key] ?? 'unknown';
+        if (!array_key_exists($key,$input)) continue;
+        $value = $input[$key];
         $clean=is_string($value) && in_array($value, ['unknown','yes','no'], true) ? $value : 'unknown';
         if($options[$key]!==$clean) $server_changed=true;
         $options[$key]=$clean;
     }
-    $evidence = isset($input['evidence']) && is_string($input['evidence']) ? sanitize_text_field(wp_unslash(substr($input['evidence'],0,4000))) : '';
+    $evidence = isset($input['evidence']) && is_string($input['evidence']) ? sanitize_text_field(wp_unslash(substr($input['evidence'],0,4000))) : $options['evidence'];
     $evidence=function_exists('mb_strcut') ? mb_strcut($evidence,0,500,'UTF-8') : wp_check_invalid_utf8(substr($evidence,0,500),true);
     if($options['evidence']!==$evidence) $server_changed=true;
     $options['evidence']=$evidence;
@@ -79,6 +80,7 @@ function wphm_sc_save_options(array $input): void {
 /** Called only by a capability/nonce-protected POST, before any acquisition starts. */
 function wphm_sc_save_sources(array $input): void {
     if(!wphm_sc_allowed()) throw new WPHM_Security_Check_Exception('この設定を変更する権限がありません。');
+    wphm_sc_save_reading_scopes($input,false);
     $old=wphm_sc_options(); $next=$old; $selection=[];
     foreach(array_merge(array_keys(wphm_sc_source_names()),['updates','vulnerabilities','vendor','public_http']) as $key) {
         $field='source_'.$key;
@@ -133,37 +135,26 @@ function wphm_sc_save_sources(array $input): void {
         update_option('wphm_sc_revision',wp_generate_password(16,false,false),false);
         foreach(['wphm_sc_cf_metadata','wphm_sc_reader_server','wphm_sc_reader_edge'] as $key) delete_option($key);
     }
+    wphm_sc_save_reading_scopes($input);
     update_user_option(get_current_user_id(),'wphm_sc_sources',$selection,false);
 }
 
 function wphm_sc_settings_html(): void {
     $options = wphm_sc_options();
     ?>
-    <details id="wphm-sc-settings" class="wphm-panel wphm-sc-details wphm-sc-settings"><summary>各項目の設定・観測基準</summary>
+    <details id="wphm-sc-settings" class="wphm-panel wphm-sc-details wphm-sc-settings"><summary>記録・集計の注意基準</summary>
     <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=wphm-security-check')); ?>">
-        <?php wp_nonce_field('wphm_security_check', 'nonce'); ?>
+        <?php echo str_replace('id="nonce"','id="wphm-sc-threshold-nonce"',wp_nonce_field('wphm_security_check','nonce',true,false)); ?>
         <input type="hidden" name="wphm_sc_action" value="settings">
         <input type="hidden" name="wphm_sc_thresholds_form" value="1">
         <input type="hidden" name="vulnerabilities" value="<?php echo $options['vulnerabilities']?'1':'0'; ?>">
         <p><a href="#wphm-sc-form">上部の共通取得元・接続設定へ戻る</a> ／ <a href="<?php echo esc_url(admin_url('plugins.php')); ?>">利用中の機能を確認</a></p>
-        <h3>サーバー情報のメモ（管理者申告）</h3>
-        <p class="description">提供元で確認した内容を記録できます。メモだけで自動検証を確認済みにはしません。7日を超える申告は期限切れとして表示します。</p>
-        <?php foreach (['uploads_execution' => 'アップロード先でスクリプト実行を禁止している', 'vendor_patches' => 'PHP系列に対してホスティング提供元がセキュリティ修正を提供している'] as $key => $label): ?>
-        <p><label><?php echo esc_html($label); ?><select name="<?php echo esc_attr($key); ?>"><?php foreach (['unknown'=>'未確認','yes'=>'はい（確認済み）','no'=>'いいえ（確認済み）'] as $value=>$text): ?><option value="<?php echo esc_attr($value); ?>" <?php selected($options[$key], $value); ?>><?php echo esc_html($text); ?></option><?php endforeach; ?></select></label></p>
-        <?php endforeach; ?>
-        <p><label>確認根拠・提供元の案内 <input class="widefat" type="text" name="evidence" maxlength="500" value="<?php echo esc_attr($options['evidence']); ?>"></label></p>
-        <p><label><input type="checkbox" name="confirm_server" value="1">変更のないサーバー情報も今回確認し直した</label></p>
-        <h3>① 試行制限の判定基準</h3>
-        <p class="description">取得した制限値を確認する運用上の基準です。既存の防御設定は変更しません。回数が上限を超える、計数期間・停止時間が下限を下回る設定は要確認とします。共有回線やサービス仕様に合わせて調整してください。</p>
-        <?php foreach(['login_max_tries'=>'許容回数の上限（回）','login_min_period'=>'計数期間の下限（秒）','login_min_lockout'=>'停止時間の下限（秒）'] as $key=>$label): $bound=wphm_sc_threshold_bounds()[$key]; ?>
-        <p><label><?php echo esc_html($label); ?> <input type="number" name="<?php echo esc_attr($key); ?>" min="<?php echo (int)$bound[0]; ?>" max="<?php echo (int)$bound[1]; ?>" value="<?php echo (int)$options[$key]; ?>"></label></p>
-        <?php endforeach; ?>
-        <h3>①⑤ 観測の注意基準</h3>
+        <h3>認証・通信の記録を確認する基準</h3>
         <p class="description">計測した範囲の注意表示に使います。認証を遮断したり、他機能の設定を変更したりする値ではありません。</p>
         <?php foreach(['auth_failures'=>'認証失敗（件/分）','auth_focus'=>'共有枠の認証失敗（件/5分）','traffic_peak'=>'通信量（件/分）','http_errors'=>'HTTP 5xx（件/24時間）','error_percent'=>'100件以上ある場合の5xx率（％）'] as $key=>$label): $bound=wphm_sc_threshold_bounds()[$key]; ?>
         <p><label><?php echo esc_html($label); ?> <input type="number" name="<?php echo esc_attr($key); ?>" min="<?php echo (int)$bound[0]; ?>" max="<?php echo (int)$bound[1]; ?>" value="<?php echo (int)$options[$key]; ?>"></label></p>
         <?php endforeach; ?>
-        <p><button class="button" type="submit">観測基準・メモを保存</button></p>
+        <p><button class="button" type="submit">注意基準を保存</button></p>
     </form></details>
     <?php
 }

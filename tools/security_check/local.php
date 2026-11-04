@@ -60,8 +60,8 @@ function wphm_sc_identity_facts(bool $enabled=true, string $operation='fresh'): 
     return $out;
 }
 
-function wphm_sc_file_facts(array $inventory, bool $enabled=true): array {
-    if(!$enabled) return ['mime_count'=>0,'types_checked'=>false,'executable_types'=>[],'upload_bytes'=>0,'public_ajax'=>0,'scripts'=>0,'scanned'=>0,'limited'=>false,'scan_available'=>false,'rule_hint'=>false,'writable'=>null,'code_tools'=>[]];
+function wphm_sc_file_facts(array $inventory, bool $enabled=true, bool $scan_uploads=true): array {
+    if(!$enabled) return ['mime_count'=>0,'types_checked'=>false,'executable_types'=>[],'active_content_types'=>[],'upload_bytes'=>0,'public_ajax'=>0,'scripts'=>0,'scanned'=>0,'limited'=>false,'scan_available'=>false,'rule_hint'=>false,'writable'=>null,'code_tools'=>[]];
     $types=get_allowed_mime_types(); $dangerous=[];
     $types_valid=is_array($types) && count($types)>0 && count($types)<=200;
     if ($types_valid) foreach($types as $pattern=>$mime) if(!is_string($pattern) || strlen($pattern)>200 || !is_string($mime)){ $types_valid=false; break; }
@@ -69,11 +69,14 @@ function wphm_sc_file_facts(array $inventory, bool $enabled=true): array {
         $type=wp_check_filetype('wphm-check.' . $extension,$types);
         if(!empty($type['ext'])) $dangerous[]=$extension;
     }
-    $out=['mime_count'=>is_array($types)?count($types):0,'types_checked'=>$types_valid,'executable_types'=>$dangerous,'upload_bytes'=>(int)wp_max_upload_size(),'public_ajax'=>0,'scripts'=>0,'scanned'=>0,'limited'=>false,'scan_available'=>false,'rule_hint'=>false,'writable'=>null,'code_tools'=>[]];
+    $active_content=[];
+    if ($types_valid) foreach (['html','htm','svg'] as $extension) if (!empty(wp_check_filetype('wphm-check.'.$extension,$types)['ext'])) $active_content[]=$extension;
+    $out=['mime_count'=>is_array($types)?count($types):0,'types_checked'=>$types_valid,'executable_types'=>$dangerous,'active_content_types'=>$active_content,'upload_bytes'=>(int)wp_max_upload_size(),'public_ajax'=>0,'scripts'=>0,'scanned'=>0,'limited'=>false,'scan_available'=>false,'rule_hint'=>false,'writable'=>null,'code_tools'=>[]];
     global $wp_filter;
     foreach (array_keys($wp_filter) as $hook) if (strpos($hook,'wp_ajax_nopriv_')===0) $out['public_ajax']++;
     $active=array_merge((array)get_option('active_plugins',[]),array_keys((array)get_site_option('active_sitewide_plugins',[])));
     foreach (['code-snippets/code-snippets.php','insert-headers-and-footers/ihaf.php','wpcode-lite/wpcode.php'] as $file) if (in_array($file,$active,true)) $out['code_tools'][]=$inventory['plugins'][$file]['Name'] ?? $file;
+    if (!$scan_uploads) return $out;
     $uploads=wp_upload_dir(null,false); $base=$uploads['basedir'] ?? '';
     if (!empty($uploads['error']) || !is_string($base) || !is_dir($base) || is_link($base)) return $out;
     $resolved=realpath($base); if ($resolved===false) return $out;
@@ -111,7 +114,7 @@ function wphm_sc_audit_facts(): array {
     $manifest=json_decode((string)file_get_contents($path),true);
     if (!is_array($manifest) || ($manifest['version'] ?? '')!==WPHM_VERSION || !is_array($manifest['files'] ?? null) || count($manifest['files'])>200) return $out;
     foreach ($manifest['files'] as $file=>$hash) {
-        if (!is_string($file) || !preg_match('~^(?:(?:includes|tools|assets/js)/[A-Za-z0-9_./-]+\.(?:php|js)|wp-helpers-multi\.php)$~D',$file) || strpos($file,'..')!==false || !is_string($hash) || !preg_match('/^[a-f0-9]{64}$/D',$hash)) return $out;
+        if (!is_string($file) || !preg_match('~^(?:(?:includes|tools|assets/js)/[A-Za-z0-9_./-]+\.(?:php|js)|assets/css/[A-Za-z0-9_./-]+\.css|wp-helpers-multi\.php)$~D',$file) || strpos($file,'..')!==false || !is_string($hash) || !preg_match('/^[a-f0-9]{64}$/D',$hash)) return $out;
         $local=WPHM_PLUGIN_DIR . $file; $out['files']++;
         $bytes=is_file($local) && !is_link($local) && filesize($local)<=2097152 ? @file_get_contents($local) : false;
         if (!is_string($bytes) || !hash_equals($hash,hash('sha256',str_replace("\r\n","\n",$bytes)))) $out['changed']++;

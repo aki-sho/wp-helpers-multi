@@ -80,6 +80,9 @@ try {
         require __DIR__ . '/security-check-twenty.php';
         require __DIR__ . '/security-check-guidance.php';
         echo "PASS: {$checks} native twenty-item security assertions.\n";
+    } elseif ($mode === 'reading') {
+        require __DIR__ . '/security-check-reading.php';
+        echo "PASS: {$checks} native WordPress reading/control assertions.\n";
     } elseif ($mode !== 'main') {
         sc_same(false, function_exists('wphm_sc_collect'), $mode . ': checker module not loaded');
         sc_same(false, has_action('wp_ajax_wphm_security_check'), $mode . ': no AJAX hook');
@@ -183,7 +186,7 @@ try {
         update_option('users_can_register', 0); update_option('default_role', 'subscriber');
         $facts['file_uploads'] = false;
         $fixture = ['checked_at' => time(), 'refreshed' => true, 'facts' => $facts, 'items' => wphm_sc_assess($facts)];
-        $escape = $fixture; $escape['items'][0]['checks'][0]['status']='ok'; $escape['items'][0]['checks'][0]['value'] = '<img src=x onerror=alert(1)>';
+        $escape = $fixture; $escape['items'][0]['checks'][0]['label']='認証記録'; $escape['items'][0]['checks'][0]['status']='ok'; $escape['items'][0]['checks'][0]['value'] = '<img src=x onerror=alert(1)>';
         ob_start(); wphm_sc_report_html($escape); $html = ob_get_clean();
         sc_same(false, strpos($html, '<img src=x') !== false, 'fact text HTML escaped');
         sc_same(true, strpos($html, '&lt;img') !== false, 'escaped fact displayed as text');
@@ -194,7 +197,7 @@ try {
         ob_start(); wphm_render_dashboard(); $dashboard = ob_get_clean();
         sc_same(true, strpos($dashboard, 'wphm_tools[security_check]') !== false, 'dashboard toggle rendered');
         sc_same(20, substr_count($page, 'data-check='), 'twenty rows rendered');
-        foreach (array_keys(wphm_sc_levels()) as $level) sc_same(true, strpos($page, 'wphm-sc-' . $level) !== false, 'four states supported by UI');
+        foreach (array_keys(wphm_sc_control_states()) as $state) sc_same(true, strpos($page, 'wphm-sc-state-' . $state) !== false, 'three setting states supported by UI');
         $calls = []; delete_transient('wphm_security_check_' . WPHM_VERSION . '_' . get_current_user_id());
         wphm_sc_report(); wphm_sc_report();
         sc_same(0, count($calls), 'viewing cached report performs no HTTP');

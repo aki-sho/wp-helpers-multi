@@ -223,10 +223,10 @@ sc_same(true,isset($GLOBALS['wphm_sc_page_message']),'native settings save ackno
 require __DIR__.'/security-check-results.php';
 $display=wphm_sc_collect(false); $display['facts']['registration']=true; $display['facts']['raw_html']=true; $display['facts']['file_uploads']=false;
 $display['facts']['telemetry']=$observed;
-// Explicitly simulate traffic waiting so all four render states remain covered after richer assessments.
+// Explicitly simulate traffic waiting so all four legacy evidence levels remain covered after richer assessments.
 foreach(['requests','peak','errors','recent_requests'] as $key) $display['facts']['telemetry'][$key]=0;
 $display['items']=wphm_sc_assess($display['facts']);
-foreach(array_keys(wphm_sc_levels()) as $level) sc_same(true,in_array($level,array_column($display['items'],'level'),true),'browser fixture explicitly covers result level '.$level);
+foreach(array_keys(wphm_sc_levels()) as $level) sc_same(true,in_array($level,array_column($display['items'],'level'),true),'legacy observation metadata covers result level '.$level);
 $GLOBALS['wphm_sc_page_report']=$display; unset($GLOBALS['wphm_sc_page_error']);
 ob_start(); wphm_sc_render(); $page=ob_get_clean();
 file_put_contents($root.'/.wphm-test/security-check-page.html',$page);

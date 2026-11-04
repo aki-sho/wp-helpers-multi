@@ -14,7 +14,7 @@ $route_facts['identity']=array_replace($route_facts['identity'],$route_base,['xm
 $route_items=array_column(wphm_sc_assess($route_facts),null,'id');
 $route_checks=array_column($route_items['credential_stuffing']['checks'],null,'label');
 sc_same('pending',$route_checks['別の認証経路']['status'],'actual assessment preserves the unknown XML-RPC route');
-sc_same('unknown',$route_items['credential_stuffing']['level'],'actual graph cannot turn low from zero API registrations');
+sc_same('unknown',$route_items['credential_stuffing']['level'],'legacy evidence assessment cannot turn low from zero API registrations');
 echo "PASS stage 1: alternate authentication route regression.\n";
 $policy=wphm_sc_options();
 $strong_limit=['enabled'=>true,'applied'=>true,'tries'=>5,'period'=>300,'seconds'=>600,'routes'=>['wp_login']];
@@ -23,7 +23,7 @@ foreach([['tries'=>1000000],['period'=>1],['seconds'=>0],['enabled'=>false],['ap
 $weak_facts=$positive; sc_limiter_evidence($weak_facts,['name'=>'Weak fixture','tries'=>100,'seconds'=>1]);
 $weak_items=array_column(wphm_sc_assess($weak_facts),null,'id');
 sc_same('attention',$weak_items['brute_force']['checks'][0]['status'],'actual check flags an overly permissive limiter');
-sc_same('medium',$weak_items['brute_force']['level'],'actual graph reflects weak limiter configuration');
+sc_same('medium',$weak_items['brute_force']['level'],'legacy evidence assessment reflects weak limiter configuration');
 $saved_policy=get_option('wphm_sc_options',[]);
 try {
     wphm_sc_save_options(['login_max_tries'=>'3','login_min_period'=>'120','login_min_lockout'=>'300']);
@@ -34,7 +34,7 @@ try {
         sc_same(true,$rejected,'invalid policy values rejected');
     }
 } finally { update_option('wphm_sc_options',$saved_policy,false); }
-echo "PASS stage 2: limiter policy settings and graph.\n";
+echo "PASS stage 2: limiter policy settings and evidence.\n";
 $vendor_options=get_option('wphm_sc_options',[]); $vendor_prefs=get_user_option('wphm_sc_sources',get_current_user_id());
 $vendor_file=WP_CONTENT_DIR.'/plugins/vendor-followup.php';
 file_put_contents($vendor_file,"<?php\n/* Plugin Name: Vendor follow-up\nVersion: 1.2.0\nUpdate URI: https://vendor.invalid/\n*/\n"); wp_cache_delete('plugins','plugins');

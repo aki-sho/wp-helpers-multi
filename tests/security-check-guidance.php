@@ -13,11 +13,11 @@ try {
     ob_start(); wphm_sc_report_html($guide_report); $guide_html=ob_get_clean();
     foreach(['UNSELECTED_CONFIRMED_VALUE','UNSELECTED_CONFIRMED_HELP','未確認・計測中','（確認先：','／参考）','設定元は未特定）'] as $forbidden) sc_same(false,strpos($guide_html,$forbidden)!==false,'unchecked rendering must not retain misleading wording: '.$forbidden);
     preg_match_all('/class="wphm-sc-origin">([^<]*)</u',$guide_html,$guide_tags);
-    sc_same(true,count($guide_tags[1])>20,'locations rendered throughout all twenty items');
+    sc_same(0,count($guide_tags[1]),'unselected sources do not invent confirmed location tags');
     foreach(array_unique($guide_tags[1]) as $tag) sc_same(true,in_array($tag,['（WordPress内）','（サーバー側）','（外部サービス）'],true),'each location tag uses one exact allowed name');
     sc_same(20,substr_count($guide_html,'class="wphm-sc-accordion"'),'twenty compact disclosures retained');
-    sc_same(true,strpos($guide_html,'理由：')!==false && strpos($guide_html,'次の操作：')!==false,'unselected rows give both reason and next action');
-    sc_same(true,strpos($guide_html,'この項目で調べる場所が未選択')!==false,'source selection reason shown');
+    sc_same(true,strpos($guide_html,'確認できない理由')!==false && strpos($guide_html,'次の操作')!==false,'control details give both reason and next action');
+    sc_same(true,strpos($guide_html,'WordPress内が未選択')!==false,'source selection reason shown');
     sc_same(['WordPress内','サーバー側','外部サービス'],wphm_sc_location_tags(['sources'=>['wordpress','server','edge','untrusted','wordpress']]),'only known source tags survive and duplicates are removed');
 
     update_user_option($guide_user,'wphm_sc_sources',['wordpress'=>true,'server'=>true,'edge'=>false,'updates'=>false,'vulnerabilities'=>false,'vendor'=>false,'public_http'=>false],false);

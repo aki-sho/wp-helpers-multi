@@ -9,13 +9,14 @@ version = re.search(r"define\('WPHM_VERSION', '([^']+)'\)", (root / 'wp-helpers-
 files = [root / 'wp-helpers-multi.php']
 for directory in ('includes', 'tools', 'assets/js'):
     files += [p for p in (root / directory).rglob('*') if p.suffix in ('.php', '.js')]
+files += list((root / 'assets/css').glob('*.css'))
 manifest = {
     'version': version,
     'groups': [
         'SQL：アクセスログ・IP拒否・検索置換・投稿データ・サイト内URL一覧・セキュリティ集計の値パラメータ、固定識別子、並び替え許可リストを確認。',
         'XSS：全ツールの管理画面、履歴・CSV、URL表示、JavaScriptへのデータ引渡しを確認。エスケープした出力と文字列サイズ制限の回帰検証を実施。',
         'CSRF：ダッシュボード設定・文字サイズ・ログ削除/IP操作・コメント操作・リンク点検・URL収集・検索置換・セキュリティ再チェック/設定の権限、nonce、状態変更メソッドを確認。CSV/更新情報の読取りは権限とnonceで保護。',
-        'パス：ツール読込みは固定パス。ユーザー入力によるローカルファイル指定・アーカイブ展開は提供しない。新しいアップロード先読取りは固定起点、件数制限、シンボリックリンク除外。',
+        'パス：フォームから読取り先・PHP関数を指定しない。WordPressの実配置から対象を固定し、ルート境界・リンク・通常ファイル・サイズ・件数・分割処理の所有者を確認。取得コードは実行せず、本文・秘密値を記録・送信しない。',
     ],
     'files': {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes().replace(b'\r\n',b'\n')).hexdigest() for p in sorted(files)},
 }
