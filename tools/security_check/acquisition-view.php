@@ -42,7 +42,8 @@ function wphm_sc_item_sources_html(array $item): void {
         echo '<div><strong>'.esc_html(wphm_sc_source_names()[$source]).'</strong><span class="wphm-sc-source-status">'.esc_html($labels[$status] ?? '未確認').'</span><p>'.esc_html(wphm_sc_source_reason($info)).'</p>';
         if(!empty($info['name']) && $info['name']!==wphm_sc_source_names()[$source]) echo '<small>'.esc_html($info['name']).'</small>';
         if(is_int($info['checked_at'] ?? null) && $info['checked_at']>0 && $info['checked_at']<=time()+60) echo '<small>取得 '.esc_html(wphm_format_timestamp($info['checked_at'])).'</small>';
-        if($source!=='wordpress' && in_array($status,['setup','pending','unsupported','error','skip'],true)) echo '<a href="#wphm-sc-connect-'.esc_attr($source).'" class="wphm-sc-source-link" data-sc-connect="'.esc_attr($source).'">接続設定を確認</a>';
+        if($status==='skip') echo '<a href="#wphm-sc-form" class="wphm-sc-source-link">取得元を選ぶ</a>';
+        elseif($source!=='wordpress' && in_array($status,['setup','pending','unsupported','error'],true)) echo '<a href="#wphm-sc-connect-'.esc_attr($source).'" class="wphm-sc-source-link" data-sc-connect="'.esc_attr($source).'">接続設定を確認</a>';
         echo '</div>';
     }
     echo '</div></details>';

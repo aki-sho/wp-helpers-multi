@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 function wphm_sc_check_labels(): array {
-    return ['ok'=>'確認済み','attention'=>'要確認','issue'=>'要対応','setup'=>'要設定','error'=>'取得失敗','pending'=>'未確認・計測中','unavailable'=>'確認範囲外','skip'=>'未選択','manual'=>'管理者メモ'];
+    return ['ok'=>'確認済み','attention'=>'要確認','issue'=>'要対応','setup'=>'要設定','error'=>'取得失敗','pending'=>'未確認','unavailable'=>'確認範囲外','skip'=>'未選択','manual'=>'管理者メモ'];
 }
 
 /** Separate an observed result from missing settings and unavailable evidence. */

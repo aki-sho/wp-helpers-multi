@@ -115,6 +115,8 @@
   });
   resume.addEventListener('click', () => { if (!run || busy) return; paused = false; controls(); status.textContent = '照合を再開します…'; schedule(); });
   document.addEventListener('click', event => {
+    const evidence = event.target.closest && event.target.closest('a[href="#wphm-sc-vulnerabilities"]');
+    if (evidence) { const panel = document.getElementById('wphm-sc-vulnerabilities'); if (panel) panel.open = true; }
     const target = event.target.closest && event.target.closest('.wphm-sc-settings-link');
     if (target) { const settings = document.getElementById('wphm-sc-settings'); if (settings) settings.open = true; }
     const link = event.target.closest && event.target.closest('[data-sc-connect]');

@@ -1,0 +1,14 @@
+{
+  "name": "WP Helpers Multi",
+  "slug": "wp-helpers-multi",
+  "version": "0.11.1",
+  "download_url": "https://plugin.pretty-cute.info/wp-helpers-multi/wp-helpers-multi.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "7.0",
+  "last_updated": "2026-11-04",
+  "sections": {
+    "description": "WordPress管理画面の便利ツール集。投稿データ、サイト内URL一覧、20項目のセキュリティチェック、検索・置換、ログ等を提供します。",
+    "changelog": "- v0.11.1 確認場所の表記を3種類に統一。未選択・未取得の理由と具体的な次の操作を表示。静的設定と記録不足を区別。サイト固有初期値を削除し、更新情報JSON取得時のUser-Agentを見直し。"
+  }
+}

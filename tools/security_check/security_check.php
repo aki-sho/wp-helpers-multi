@@ -23,6 +23,7 @@ require_once __DIR__ . '/public-response.php';
 require_once __DIR__ . '/facts.php';
 require_once __DIR__ . '/rules.php';
 require_once __DIR__ . '/assessment.php';
+require_once __DIR__ . '/guidance.php';
 require_once __DIR__ . '/source-assessment.php';
 require_once __DIR__ . '/extended-assessment.php';
 require_once __DIR__ . '/evidence.php';

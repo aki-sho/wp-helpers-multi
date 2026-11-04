@@ -11,9 +11,9 @@ const WPHM_LI_OPT_STATE    = 'wphm_link_inspector_state';
 function wphm_li_defaults_settings(): array {
     return [
         'sitemap_url'   => home_url('/sitemap.xml'),
-        'bad_patterns'  => "https://v2.pretty-cute.info/\nhttps://pretty-cut.info/\nhttps://pretty-cutee.info/",
+        'bad_patterns'  => '',
         'typo_level'    => 'weak', // weak|medium|high
-        'target_host'   => 'pretty-cute.info',
+        'target_host'   => strtolower((string)wp_parse_url(home_url('/'), PHP_URL_HOST)),
         'types'         => [
             'a'      => 1, // a[href]
             'img'    => 1, // img[src]

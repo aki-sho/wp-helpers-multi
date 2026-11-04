@@ -78,6 +78,7 @@ try {
         echo "PASS: {$checks} native multisite security-check assertions.\n";
     } elseif ($mode === 'twenty') {
         require __DIR__ . '/security-check-twenty.php';
+        require __DIR__ . '/security-check-guidance.php';
         echo "PASS: {$checks} native twenty-item security assertions.\n";
     } elseif ($mode !== 'main') {
         sc_same(false, function_exists('wphm_sc_collect'), $mode . ': checker module not loaded');
@@ -182,7 +183,7 @@ try {
         update_option('users_can_register', 0); update_option('default_role', 'subscriber');
         $facts['file_uploads'] = false;
         $fixture = ['checked_at' => time(), 'refreshed' => true, 'facts' => $facts, 'items' => wphm_sc_assess($facts)];
-        $escape = $fixture; $escape['items'][0]['checks'][0]['value'] = '<img src=x onerror=alert(1)>';
+        $escape = $fixture; $escape['items'][0]['checks'][0]['status']='ok'; $escape['items'][0]['checks'][0]['value'] = '<img src=x onerror=alert(1)>';
         ob_start(); wphm_sc_report_html($escape); $html = ob_get_clean();
         sc_same(false, strpos($html, '<img src=x') !== false, 'fact text HTML escaped');
         sc_same(true, strpos($html, '&lt;img') !== false, 'escaped fact displayed as text');
@@ -245,6 +246,7 @@ try {
         require __DIR__ . '/security-check-acquisition.php';
         require __DIR__ . '/security-check-followups.php';
         require __DIR__ . '/security-check-twenty.php';
+        require __DIR__ . '/security-check-guidance.php';
         echo "PASS: {$checks} native WordPress security-check assertions.\n";
     }
     }

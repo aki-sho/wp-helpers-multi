@@ -164,7 +164,8 @@ try {
     sc_same(false,strpos($html,'現在の状態')!==false,'removed current-state field absent');
     sc_same(false,strpos($html,'判定理由')!==false,'removed reason field absent');
     sc_same(false,strpos($html,'wphm-sc-coverage')!==false,'only categorical risk bars retained');
-    sc_same(true,strpos($html,'（確認先：')!==false,'unread settings explicitly name a target location');
+    sc_same(false,strpos($html,'（確認先：')!==false,'location tags do not mix in acquisition state');
+    sc_same(true,strpos($html,'（WordPress内）')!==false,'location tags use the requested exact wording');
     $safe_page['items'][0]['checks'][0]['label']='<script>label</script>';
     $safe_page['items'][0]['checks'][0]['help']='<img src=x onerror=x>';
     ob_start(); wphm_sc_report_html($safe_page); $html=ob_get_clean();

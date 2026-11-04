@@ -33,6 +33,7 @@ function wphm_get_update_metadata(bool $force = false): ?array {
     if (!$force && is_array($cached) && array_key_exists('data', $cached)) return wphm_validate_update_metadata($cached['data']);
     $response = wp_safe_remote_get(WPHM_UPDATE_JSON_URL, [
         'timeout' => 5, 'redirection' => 3, 'limit_response_size' => 262144,
+        'user-agent' => 'WP-Helpers-Multi/' . WPHM_VERSION,
         'headers' => $force ? ['Accept' => 'application/json', 'Cache-Control' => 'no-cache'] : ['Accept' => 'application/json'],
     ]);
     $data = null;

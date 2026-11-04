@@ -134,7 +134,7 @@ function wphm_sc_report_html(array $report): void {
         <p><strong>確認日時：</strong><time datetime="<?php echo esc_attr(wp_date('c', $report['checked_at'])); ?>"><?php echo esc_html(wphm_format_timestamp($report['checked_at'])); ?></time></p>
         <p><?php echo $report['refreshed'] ? '設定・集計を読み直し、設定された外部照会を実行しました。製品ごとの取得日時と未確認範囲は詳細に表示します。' : '保存済みの照会根拠と現在の設定・集計を参照しています。「再チェック」で外部情報を更新します。'; ?></p>
     </div>
-    <p class="description wphm-sc-risk-help">棒は達成率ではなく、確認項目から判定したリスクです。低は確認できた対象の範囲の評価です。未確認を安全とは扱いません。（）は設定・記録の場所、未取得は「確認先」、補助情報は「参考」と表示します。</p>
+    <p class="description wphm-sc-risk-help">棒は達成率ではなく、確認項目から判定したリスクです。低は確認できた対象の範囲の評価です。未確認を安全とは扱いません。括弧内は確認対象の設定・記録の場所です。取得状況は右側の状態と説明に表示します。公開応答だけでは設定元の場所を特定できません。</p>
     <?php if(!empty($scan['pending']) || !empty($scan['users_pending'])): ?>
     <div class="wphm-sc-scan" data-run="<?php echo esc_attr($scan['run'] ?? ''); ?>" role="status">
         <span>既知脆弱性：未照合 <?php echo (int)$scan['pending']; ?>製品。<?php if(!empty($scan['users_pending'])): ?>利用者：<?php echo (int)$facts['identity']['checked']; ?>人を確認、残りを分割確認します。<?php endif; ?><?php echo !empty($scan['stopped']) ? '処理上限に達しました。再チェックで保存済みの続きから照合できます。' : 'この画面の自動照合で続きを確認します。画面を閉じると続行を停止します。'; ?></span>
@@ -160,7 +160,16 @@ function wphm_sc_report_html(array $report): void {
             <?php wphm_sc_item_sources_html($item); ?>
             <?php if(!empty($item['checks'])): ?>
             <h3>確認項目</h3>
-            <ul class="wphm-sc-checks"><?php foreach($item['checks'] as $check): $places=[]; foreach($check['sources'] ?? ['wordpress'] as $source) if(isset(wphm_sc_source_names()[$source])) $places[]=wphm_sc_source_names()[$source]; $origin=(empty($check['source_confirmed'])?'確認先：':'').implode('・',$places).(!empty($check['public_response'])?'／公開応答・設定元は未特定':'').(!empty($check['reference'])?'／参考':''); ?><li><div><strong><?php echo esc_html($check['label']); ?><span class="wphm-sc-origin">（<?php echo esc_html($origin); ?>）</span></strong><span class="wphm-sc-check-badge wphm-sc-check-<?php echo esc_attr($check['status']); ?>"><?php echo esc_html($labels[$check['status']] ?? '未確認'); ?></span></div><span><?php echo esc_html($check['value']); ?></span><?php if($check['help']!==''): ?><small><?php echo esc_html($check['help']); ?></small><?php endif; ?></li><?php endforeach; ?></ul>
+            <ul class="wphm-sc-checks">
+            <?php foreach($item['checks'] as $check): $guidance=wphm_sc_check_guidance($check,$facts,$item['id']); ?>
+                <li><div><strong><?php echo esc_html($check['label']); ?><?php foreach(wphm_sc_location_tags($check) as $place): ?><span class="wphm-sc-origin">（<?php echo esc_html($place); ?>）</span><?php endforeach; ?></strong><span class="wphm-sc-check-badge wphm-sc-check-<?php echo esc_attr($check['status']); ?>"><?php echo esc_html($guidance['status_label']); ?></span></div>
+                <?php if($guidance['unread']): ?>
+                    <span><strong>理由：</strong><?php echo esc_html($guidance['reason']); ?></span>
+                    <small><strong>次の操作：</strong><?php echo esc_html($guidance['action']); ?><?php if($guidance['link']!==''): ?> <a href="<?php echo esc_url($guidance['link']); ?>" class="wphm-sc-source-link"<?php if(strpos($guidance['link'],'#wphm-sc-connect-')===0): ?> data-sc-connect="<?php echo esc_attr(substr($guidance['link'],strlen('#wphm-sc-connect-'))); ?>"<?php endif; ?>><?php echo esc_html($guidance['link_label']); ?></a><?php endif; ?></small>
+                <?php else: ?>
+                    <span><?php echo esc_html($check['value']); ?></span><?php if($check['help']!==''): ?><small><?php echo esc_html($check['help']); ?></small><?php endif; ?>
+                <?php endif; ?></li>
+            <?php endforeach; ?></ul>
             <a class="wphm-sc-settings-link" href="#wphm-sc-settings">この項目の設定・確認方法を見る</a>
             <?php endif; ?>
             </div></details>

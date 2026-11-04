@@ -40,7 +40,7 @@ function wphm_sc_evidence_html(array $facts): void {
     }
     foreach ($lines as $line) echo '<p>' . esc_html($line) . '</p>';
     echo '</details>';
-    echo '<details class="wphm-panel wphm-sc-details wphm-sc-vulnerabilities"><summary>既知脆弱性の照合結果・対象製品</summary>';
+    echo '<details class="wphm-panel wphm-sc-details wphm-sc-vulnerabilities" id="wphm-sc-vulnerabilities"><summary>既知脆弱性の照合結果・対象製品</summary>';
     echo '<p>WPVulnerabilityの公開情報を識別名と版で照合します。独自配布・同名製品・改名・未知の欠陥は確認できません。0件は安全の証明ではありません。MUプラグイン・ドロップインは一覧に含め、照合未対応として数えます。</p>';
     foreach ($vulns['matches'] ?? [] as $match) {
         echo '<article class="wphm-sc-vulnerability"><h3>' . esc_html($match['component'] . ' ' . $match['version'] . '：' . $match['name']) . '</h3>';
